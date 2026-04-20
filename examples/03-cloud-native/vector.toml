@@ -1,0 +1,70 @@
+# Vector config demonstrating the structuring this project deliberately does
+# NOT do inside the container: parsing plain-text sshd/internal-sftp/
+# sftp-reconciled log lines into a source, a coarse level, and (for the
+# sftp stream) a session pid. See ARCHITECTURE.md's Logging Pipeline
+# Internals section for why structuring lives here, in the shipper, and
+# not in the container.
+#
+# Source: docker_logs reads the sftp container's stdout via the Docker
+# Engine API, so it needs read access to the Docker socket (mounted
+# read-only in compose.yml). This is the standard pattern for Vector,
+# Fluent Bit, and Filebeat alike; scope it further with a socket proxy in
+# production if you don't want the shipper holding that access directly.
+
+[sources.sftp_logs]
+type = "docker_logs"
+include_containers = ["sftp"]
+
+[transforms.parse]
+type = "remap"
+inputs = ["sftp_logs"]
+source = '''
+raw = to_string!(.message)
+
+# internal-sftp lines carry their own "Mon DD HH:MM:SS internal-sftp[pid]: "
+# header (glibc syslog()'s doing, see README.md#logging). Recognize and
+# split it; everything else is either sftp-reconciled (its own "Reconcile:"/
+# "Error:"/"Warning:"/"sftp-reconciled:" vocabulary) or sshd (everything left).
+parsed, err = parse_regex(raw, r'^\w+\s+\d+\s+[\d:]+\s+internal-sftp\[(?P<pid>\d+)\]:\s*(?P<msg>.*)$')
+if err == null {
+    .source = "sftp"
+    .pid = to_int!(parsed.pid)
+    .message = parsed.msg
+} else if starts_with(raw, "Reconcile:") || starts_with(raw, "sftp-reconciled:") {
+    .source = "reconciled"
+    .message = raw
+} else {
+    .source = "sshd"
+    .message = raw
+}
+
+# Same level convention OpenSSH's own do_log() and sftp-reconciled's
+# eprintln! call sites use: fatal:/error:/debug*: (OpenSSH, lowercase),
+# Error:/Warning: (sftp-reconciled, capitalized), else "info".
+msg = string!(.message)
+if starts_with(msg, "fatal:") {
+    .level = "fatal"
+} else if starts_with(msg, "error:") || starts_with(msg, "Error:") {
+    .level = "error"
+} else if starts_with(msg, "Warning:") {
+    .level = "warning"
+} else if match(msg, r'^debug[1-3]?:') {
+    .level = "debug"
+} else {
+    .level = "info"
+}
+'''
+
+# Written to a mounted volume so the example's test.sh (running on the
+# host) can assert on the structured output without needing to shell into
+# the Vector container.
+[sinks.structured_file]
+type = "file"
+inputs = ["parse"]
+path = "/output/sftp-structured.log"
+encoding.codec = "json"
+
+[sinks.console]
+type = "console"
+inputs = ["parse"]
+encoding.codec = "json"

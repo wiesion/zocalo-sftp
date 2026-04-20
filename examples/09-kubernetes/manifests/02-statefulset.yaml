@@ -1,0 +1,134 @@
+# StatefulSet, not Deployment: per-project storage and UID/GID identity must
+# survive pod restarts predictably. Single replica, since the default StorageClass
+# doesn't support ReadWriteMany; scaling needs an RWX StorageClass (NFS, EFS,
+# Filestore, CephFS) swapped into volumeClaimTemplates below.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: zocalo-sftp
+  namespace: zocalo-example
+  labels:
+    app: zocalo-sftp
+spec:
+  serviceName: zocalo-sftp
+  replicas: 1
+  selector:
+    matchLabels:
+      app: zocalo-sftp
+  template:
+    metadata:
+      labels:
+        app: zocalo-sftp
+    spec:
+      # Pod never talks to the K8s API. Also required: the default token
+      # mount path resolves (via /var/run -> /run) to the same path our
+      # Secret volume occupies below, so leaving this on breaks the mount.
+      automountServiceAccountToken: false
+      containers:
+        - name: sftp
+          # Placeholder, test.sh/setup.sh overwrite via `kubectl set image`
+          # to match whatever tag they built and kind-loaded.
+          image: zocalo-sftp:k8s-test
+          imagePullPolicy: Never
+          ports:
+            - name: sftp
+              containerPort: 22
+            - name: metrics
+              containerPort: 9100
+          env:
+            - name: SFTP_AUTH_MODE
+              value: pubkey
+            - name: SFTP_ENABLE_METRICS
+              value: "yes"
+            - name: SFTP_METRICS_BIND
+              value: "0.0.0.0"
+            - name: SFTP_RECONCILE_INTERVAL
+              value: "5"
+          # Matches README's Container Hardening capability set.
+          # readOnlyRootFilesystem not set: this container mutates
+          # /etc/passwd, /etc/shadow, /etc/group, /etc/ssh/sshd_config.
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+              add:
+                - CHOWN
+                - DAC_OVERRIDE     # /etc/shadow ships mode 0000 on Wolfi, even root needs this to read/write it
+                - MKNOD
+                - NET_BIND_SERVICE
+                - SETGID
+                - SETUID
+                - SYS_CHROOT
+          volumeMounts:
+            - name: config
+              mountPath: /config
+              readOnly: true
+            - name: secrets
+              mountPath: /run/secrets
+              readOnly: true
+            - name: data
+              mountPath: /sftp-jail/projects
+          # Liveness: process coherent, independent of network reachability.
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "sshd -t"]
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          # Readiness: can a client complete a handshake right now. Gates
+          # Service endpoints, not restarts, so it can be tighter.
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "timeout 2 socat - TCP:localhost:22 2>/dev/null | grep -q 'SSH-'"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+      volumes:
+        - name: config
+          configMap:
+            name: zocalo-config
+            # Explicit items only to place k8s-secrets.conf under the
+            # sshd_config.d/ subdirectory sshd's Include glob expects.
+            items:
+              - key: sftp_users.conf
+                path: sftp_users.conf
+              - key: sftp_projects.conf
+                path: sftp_projects.conf
+              - key: .generation
+                path: .generation
+              - key: k8s-secrets.conf
+                path: sshd_config.d/k8s-secrets.conf
+        - name: secrets
+          projected:
+            # Two Secrets, two file modes: sshd refuses a world-readable
+            # host key, but drops privileges to the connecting user before
+            # reading their AuthorizedKeysFile, so that one must be
+            # world-readable. Docker Compose gets this split for free via
+            # ssh-keygen's host file modes; K8s Secret volumes don't.
+            #
+            # Two Secret objects (not one with per-key mode overrides):
+            # zocalo-user-secrets has no `items` list, so every key it
+            # holds is mounted automatically. Add users by updating that
+            # Secret (e.g. External Secrets Operator syncing from Vault)
+            # without ever touching this manifest. Only the host key,
+            # which is singular, needs to be named explicitly.
+            defaultMode: 0444
+            sources:
+              - secret:
+                  name: zocalo-host-key
+                  items:
+                    - key: ssh_host_ed25519_key
+                      path: ssh_host_ed25519_key
+                      mode: 0400
+              - secret:
+                  name: zocalo-user-secrets
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Gi

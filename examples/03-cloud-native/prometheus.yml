@@ -1,0 +1,11 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'zocalo-sftp'
+    static_configs:
+      - targets: ['sftp:9100']
+        labels:
+          service: 'sftp'
+          environment: 'dev'

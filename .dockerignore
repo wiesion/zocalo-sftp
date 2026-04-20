@@ -1,0 +1,36 @@
+# Git
+.git
+.gitignore
+
+# Documentation
+README.md
+examples/
+*.md
+
+# CI/CD
+.github/
+
+# IDE / tooling state
+.vscode/
+.idea/
+.claude/
+.worktrees/
+*.swp
+*.swo
+*~
+
+# Build artifacts
+*.log
+sbom.*
+vulnerabilities.*
+reconciled/target/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets (just in case)
+*.key
+*.pem
+secrets/
+data/

@@ -1,0 +1,28 @@
+# Non-secret desired state: users and project membership. ConfigMap volumes
+# are read-only, so the generation-bump trick doesn't apply directly here.
+# sftp-reconciled's polling fallback re-applies current contents every tick
+# regardless, so an edit converges within kubelet's sync period +
+# SFTP_RECONCILE_INTERVAL, no restart needed.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: zocalo-config
+  namespace: zocalo-example
+data:
+  sftp_users.conf: |
+    # username:uid
+    byron:1101
+    lochley:1102
+  sftp_projects.conf: |
+    # project_name:gid:user1,user2,...
+    downbelow:2101:byron,lochley
+  .generation: "1"
+  # sshd_config.d drop-in (lands at /config/sshd_config.d/, see
+  # 02-statefulset.yaml's `items`). Required because kubelet mounts
+  # Secret/projected volumes at 1777 (world-writable, tmpfs-backed, symlink-
+  # swapped on update); sshd's StrictModes correctly refuses to trust
+  # HostKey/AuthorizedKeysFile through a world-writable directory. Doesn't
+  # affect any other security property (capabilities, chroot, ciphers).
+  k8s-secrets.conf: |
+    StrictModes no
+

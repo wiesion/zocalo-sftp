@@ -1,0 +1,300 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  schedule:
+    # Nightly, tracking Wolfi's continuously-rebuilt base. Publishes to the
+    # floating `nightly` tag only, never `latest`, which only moves on a
+    # human-initiated version tag below. See README.md#build--publish.
+    - cron: '0 3 * * *'
+  workflow_dispatch: {}
+
+jobs:
+  # ─── Job 1: Test gate ──────────────────────────────────────────────────────
+  # Build a local amd64 image, generate + scan its SBOM, and smoke test it
+  # before anything downstream runs. Same gate as ci.yml's build-and-scan,
+  # reused here so a CVE blocks a release the same way it blocks a PR.
+  test:
+    name: Test Gate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
+
+      - name: Build test image (amd64)
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8  # v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: zocalo-sftp:release-test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Install Syft
+        uses: anchore/sbom-action/download-syft@17ae1740179002c89186b61233e0f892c3118b11  # v0.23.0
+
+      - name: Generate SBOM
+        run: syft zocalo-sftp:release-test --select-catalogers +rust-cargo-lock-cataloger -o spdx-json=sbom.spdx.json
+
+      - name: Install Grype
+        uses: anchore/scan-action/download-grype@7037fa011853d5a11690026fb85feee79f4c946c  # v7.3.2
+
+      - name: Scan for vulnerabilities
+        run: grype sbom:sbom.spdx.json --fail-on high --only-fixed
+
+      - name: Install expect
+        run: sudo apt-get install -y expect
+
+      - name: Smoke test (container health check)
+        run: |
+          ssh-keygen -t ed25519 -f /tmp/smoke_host_ed25519_key -N "" -q
+
+          mkdir -p /tmp/smoke_config
+          printf 'smokeuser:1001\n' > /tmp/smoke_config/sftp_users.conf
+          printf 'smoke:2001:smokeuser\n' > /tmp/smoke_config/sftp_projects.conf
+
+          docker run -d --name smoke-sftp \
+            -v /tmp/smoke_host_ed25519_key:/run/secrets/ssh_host_ed25519_key:ro \
+            -v /tmp/smoke_config:/config:ro \
+            zocalo-sftp:release-test
+
+          timeout 60 sh -c \
+            'until docker inspect --format="{{.State.Health.Status}}" smoke-sftp \
+               | grep -q "^healthy$"; do sleep 2; done'
+
+          docker rm -f smoke-sftp
+
+  # ─── Job 2: Integration tests (one runner per example) ─────────────────────
+  # Same matrix as ci.yml's integration-tests; rebuilds from the gha layer
+  # cache populated by the test job above, essentially instant.
+  integration-tests:
+    name: Integration / ${{ matrix.example }}
+    runs-on: ubuntu-latest
+    needs: test
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - example: 01-basic-dev
+          - example: 02-docker-secrets
+          - example: 03-cloud-native
+          - example: 04-multi-project
+          - example: 05-certificate-auth
+          - example: 06-password-auth
+            needs_expect: true
+          - example: 07-2fa
+            needs_expect: true
+          - example: 08-custom-config
+
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Install expect
+        if: ${{ matrix.needs_expect }}
+        run: sudo apt-get install -y expect
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
+
+      - name: Restore image from build cache
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8  # v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: zocalo-sftp:release-test
+          cache-from: type=gha
+
+      - name: Run ${{ matrix.example }} tests
+        env:
+          SFTP_IMAGE: zocalo-sftp:release-test
+        run: |
+          cd examples/${{ matrix.example }}
+          ./test.sh
+
+  # ─── Job 3: Kubernetes example gate (kind + Calico) ────────────────────────
+  kubernetes-test:
+    name: Kubernetes Example Gate
+    runs-on: ubuntu-latest
+    needs: test
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
+
+      - name: Restore image from build cache
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8  # v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: zocalo-sftp:release-test
+          cache-from: type=gha
+
+      - name: Install kind and kubectl
+        uses: helm/kind-action@99576bfa6ddf9a8e612d83b513da5a75875caced  # v1.9.0
+        with:
+          install_only: true
+
+      - name: Run 09-kubernetes tests
+        env:
+          SFTP_IMAGE: zocalo-sftp:release-test
+        run: |
+          cd examples/09-kubernetes
+          ./test.sh
+
+  # ─── Job 4: Build, publish, sign, SBOM, release ────────────────────────────
+  # Tag push (vX.Y.Z): publishes vX.Y.Z/vX.Y/vX/latest and creates a GitHub
+  # Release. Schedule or manual dispatch: publishes nightly/nightly-YYYYMMDD
+  # only; latest never moves outside a human-initiated tag push.
+  publish:
+    name: Build and Publish
+    runs-on: ubuntu-latest
+    needs: [integration-tests, kubernetes-test]
+
+    permissions:
+      contents: write      # create GitHub release
+      id-token: write      # keyless Cosign signing via GitHub OIDC
+
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130  # v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051  # v5
+        with:
+          images: wiesion/zocalo-sftp
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=raw,value=nightly,enable=${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+            type=raw,value=nightly-{{date 'YYYYMMDD'}},enable=${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+
+      # linux/arm/v6 and linux/arm/v7 are deliberately not built: the Wolfi
+      # runtime base doesn't ship for 32-bit ARM at all.
+      - name: Build and push multi-platform image
+        id: build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8  # v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@faadad0cce49287aee09b3a48701e75088a2c6ad  # v4.0.0
+
+      - name: Sign image (keyless via GitHub OIDC)
+        # Signs the manifest list digest so all platform variants are covered.
+        # Verify with:
+        #   cosign verify wiesion/zocalo-sftp:<tag> \
+        #     --certificate-identity-regexp="https://github.com/wiesion/zocalo-sftp/.*" \
+        #     --certificate-oidc-issuer="https://token.actions.githubusercontent.com"
+        run: |
+          cosign sign --yes \
+            wiesion/zocalo-sftp@${{ steps.build.outputs.digest }}
+
+      - name: Install Syft
+        uses: anchore/sbom-action/download-syft@17ae1740179002c89186b61233e0f892c3118b11  # v0.23.0
+
+      # Uses the build digest (not a floating tag) to avoid a race between
+      # the registry push completing and the scan tools pulling the image.
+      # The vulnerability gate already ran pre-push in the test job above;
+      # this is for the release-asset SBOM, describing what was actually
+      # published, not a second gate.
+      - name: Generate SBOM for release
+        run: |
+          syft wiesion/zocalo-sftp@${{ steps.build.outputs.digest }} --select-catalogers +rust-cargo-lock-cataloger -o spdx-json=sbom.spdx.json
+          syft wiesion/zocalo-sftp@${{ steps.build.outputs.digest }} --select-catalogers +rust-cargo-lock-cataloger -o cyclonedx-json=sbom.cyclonedx.json
+
+      - name: Install Grype
+        uses: anchore/scan-action/download-grype@7037fa011853d5a11690026fb85feee79f4c946c  # v7.3.2
+
+      - name: Generate vulnerability report
+        run: |
+          grype sbom:sbom.spdx.json -o json > vulnerabilities.json
+          grype sbom:sbom.spdx.json -o table > vulnerabilities.txt
+
+      - name: Upload SBOM and vulnerability report
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: sbom-${{ github.event_name == 'schedule' && 'nightly' || github.ref_name }}
+          path: |
+            sbom.spdx.json
+            sbom.cyclonedx.json
+            vulnerabilities.json
+            vulnerabilities.txt
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b  # v2
+        with:
+          files: |
+            sbom.spdx.json
+            sbom.cyclonedx.json
+            vulnerabilities.json
+            vulnerabilities.txt
+          body: |
+            ## Zocalo SFTP ${{ github.ref_name }}
+
+            ### Docker Images
+            ```bash
+            docker pull wiesion/zocalo-sftp:${{ github.ref_name }}
+            docker pull wiesion/zocalo-sftp:latest
+            ```
+
+            ### Platforms
+            - linux/amd64
+            - linux/arm64
+
+            ### Security
+            - SBOM attached, covering both the image (apk packages) and the Rust reconciler's dependency tree (SPDX and CycloneDX formats)
+            - Vulnerability scan report attached
+            - No high or critical vulnerabilities with fixes available
+            - Image signed with Sigstore keyless signing (verify with Cosign)
+
+            ### Verification
+            ```bash
+            cosign verify wiesion/zocalo-sftp:${{ github.ref_name }} \
+              --certificate-identity-regexp="https://github.com/wiesion/zocalo-sftp/.*" \
+              --certificate-oidc-issuer="https://token.actions.githubusercontent.com"
+            ```
+
+      - name: Update Docker Hub description
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: peter-evans/dockerhub-description@1b9a80c056b620d92cedb9d9b5a223409c68ddfa  # v5
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: wiesion/zocalo-sftp
+          short-description: "SFTP server using native Linux groups and permissions instead of a virtual-user layer."
+          readme-filepath: ./README.md
