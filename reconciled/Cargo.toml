@@ -8,7 +8,7 @@ name = "sftp-reconciled"
 path = "src/main.rs"
 
 [dependencies]
-nix          = { version = "0.29", default-features = false, features = ["fs", "user"] }
+nix          = { version = "0.31", default-features = false, features = ["fs", "user"] }
 sha-crypt    = "0.5"
 notify       = "6"
 signal-hook  = "0.3"
