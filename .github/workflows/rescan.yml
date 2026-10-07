@@ -1,0 +1,29 @@
+name: Rescan
+
+# The release gate scans against the vulnerability database as of build time.
+# This re-scans what is actually published, so a CVE disclosed (or a fix
+# released) after the build fails loud here. Runs after the 03:00 nightly build.
+on:
+  schedule:
+    - cron: '0 9 * * *'
+  workflow_dispatch: {}
+
+jobs:
+  rescan:
+    name: Rescan / ${{ matrix.tag }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        tag: [nightly, latest]
+    steps:
+      # download-grype never calls core.addPath(), only setOutput("cmd", path).
+      # See ci.yml's build-and-scan job for the full explanation.
+      - name: Install Grype
+        id: install-grype
+        uses: anchore/scan-action/download-grype@7037fa011853d5a11690026fb85feee79f4c946c  # v7.3.2
+
+      - name: Scan published image
+        run: ${{ steps.install-grype.outputs.cmd }} registry:wiesion/zocalo-sftp:${{ matrix.tag }} --fail-on high --only-fixed

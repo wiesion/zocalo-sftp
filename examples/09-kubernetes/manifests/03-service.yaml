@@ -1,0 +1,24 @@
+# Headless (clusterIP: None): StatefulSet pods get stable per-pod DNS via
+# <pod>.zocalo-sftp.<namespace>.svc, and still works as a kubectl port-forward
+# target. Not an Ingress target: Ingress routes HTTP(S) only and cannot proxy
+# raw TCP/SSH traffic. To expose this externally, add your own LoadBalancer
+# or NodePort Service; see the README's "Client IP Behind a Proxy or Load
+# Balancer" section before you do.
+apiVersion: v1
+kind: Service
+metadata:
+  name: zocalo-sftp
+  namespace: zocalo-example
+  labels:
+    app: zocalo-sftp
+spec:
+  clusterIP: None
+  selector:
+    app: zocalo-sftp
+  ports:
+    - name: sftp
+      port: 22
+      targetPort: 22
+    - name: metrics
+      port: 9100
+      targetPort: 9100

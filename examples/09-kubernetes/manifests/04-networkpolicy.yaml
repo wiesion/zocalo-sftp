@@ -1,0 +1,31 @@
+# Default-deny ingress, two allows: port 22 (SFTP) from anywhere, auth is
+# SSH's job; port 9100 (metrics, unauthenticated by design) only from pods
+# labelled role=monitoring in a namespace named "monitoring".
+#
+# Requires a NetworkPolicy-enforcing CNI. kind's default CNI does not
+# enforce this. See this example's README.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: zocalo-sftp
+  namespace: zocalo-example
+spec:
+  podSelector:
+    matchLabels:
+      app: zocalo-sftp
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: 22
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              role: monitoring
+      ports:
+        - protocol: TCP
+          port: 9100

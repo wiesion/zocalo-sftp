@@ -1,0 +1,275 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ─── Job 1: Static analysis ─────────────────────────────────────────────────
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Install ShellCheck
+        run: sudo apt-get install -y shellcheck
+
+      - name: Lint shell scripts
+        # SC2148 suppressed globally: shebangs are present but ShellCheck can
+        # flag sourced files that lack them. Env var validation lives in
+        # sftp-reconciled (Rust), not here; see the rust-checks job below.
+        run: |
+          shellcheck --severity=warning \
+            resources/entrypoint.sh \
+            resources/metrics.sh \
+            examples/lib/test-helpers.sh \
+            examples/09-kubernetes/lib-k8s.sh \
+            examples/*/test.sh \
+            examples/*/setup.sh
+
+  # ─── Job: Rust checks ────────────────────────────────────────────────────────
+  # Static checks for sftp-reconciled, the Rust binary that validates config,
+  # renders sshd_config, and reconciles users/projects: the equivalent of the
+  # shellcheck job above for Rust, plus a known-vulnerability check against
+  # the dependencies actually locked in Cargo.lock.
+  rust-checks:
+    name: Rust (clippy, fmt, audit)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Install Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@1fbea72663f6d4c03efaab13560c8a24cfd2a7cc  # v1.9.0
+        with:
+          toolchain: 1.97.1
+          components: clippy, rustfmt
+          working-directory: reconciled
+
+      - name: cargo fmt --check
+        working-directory: reconciled
+        run: cargo fmt --check
+
+      - name: cargo clippy
+        working-directory: reconciled
+        run: cargo clippy --all-targets --locked -- -D warnings
+
+      # Run in the same pinned toolchain image the Dockerfile builds with, as
+      # root, so the tests that chown/chmod real directories execute instead of
+      # skipping themselves.
+      - name: cargo test
+        run: |
+          docker run --rm -v "$PWD/reconciled:/build" -w /build \
+            rust:1.98.1-alpine3.24@sha256:7cc1c22d77d9432f7fe012a70e6d3e555af54c2a6832700ed7d553f1769ae89f \
+            cargo test --locked
+
+      - name: cargo audit
+        uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998  # v2.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          working-directory: reconciled
+
+  # ─── Job 2: Build, SBOM, and vulnerability gate ─────────────────────────────
+  build-and-scan:
+    name: Build and Security Scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
+
+      - name: Build image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8  # v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: zocalo-sftp:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Install Syft
+        uses: anchore/sbom-action/download-syft@17ae1740179002c89186b61233e0f892c3118b11  # v0.23.0
+
+      # sftp-reconciled is stripped and statically linked, invisible to
+      # image-based cataloging by default. The Dockerfile copies Cargo.lock
+      # into the final image so rust-cargo-lock-cataloger (tagged for
+      # directory sources, off by default on images) can catalog it
+      # alongside the apk packages in one pass. Verified: without both the
+      # copied Cargo.lock and this flag, the scan reports zero Rust crates.
+      - name: Generate SBOM
+        run: |
+          syft zocalo-sftp:test --select-catalogers +rust-cargo-lock-cataloger -o spdx-json=sbom.spdx.json
+          syft zocalo-sftp:test --select-catalogers +rust-cargo-lock-cataloger -o cyclonedx-json=sbom.cyclonedx.json
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: sbom
+          path: |
+            sbom.spdx.json
+            sbom.cyclonedx.json
+
+      # Unlike download-syft, this action does not add its binary to PATH
+      # (verified: its dist/index.js never calls core.addPath(), only
+      # core.setOutput("cmd", path)). Every later step must call the binary
+      # via steps.install-grype.outputs.cmd, not bare `grype`.
+      - name: Install Grype
+        id: install-grype
+        uses: anchore/scan-action/download-grype@7037fa011853d5a11690026fb85feee79f4c946c  # v7.3.2
+
+      # Scans the SBOM generated above, not a second image scan. Grype has
+      # no equivalent cataloger-selection flag, and scanning what was
+      # actually published (rather than re-deriving it) is the point.
+      - name: Scan for vulnerabilities
+        run: ${{ steps.install-grype.outputs.cmd }} sbom:sbom.spdx.json --fail-on high --only-fixed
+
+      - name: Generate vulnerability report
+        if: always()
+        run: |
+          ${{ steps.install-grype.outputs.cmd }} sbom:sbom.spdx.json -o json > vulnerabilities.json
+          ${{ steps.install-grype.outputs.cmd }} sbom:sbom.spdx.json -o table > vulnerabilities.txt
+
+      - name: Upload vulnerability report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: vulnerability-report
+          path: |
+            vulnerabilities.json
+            vulnerabilities.txt
+
+      - name: Smoke test (container health check)
+        run: |
+          # Generate a throwaway host key. sshd requires one to start,
+          # and there is no value in supporting keyless operation.
+          ssh-keygen -t ed25519 -f /tmp/smoke_host_ed25519_key -N "" -q
+
+          # There is no SFTP_USERS/SFTP_PROJECTS env-var interface, users
+          # and projects are declared exclusively via mounted config files.
+          mkdir -p /tmp/smoke_config
+          printf 'smokeuser:1001\n' > /tmp/smoke_config/sftp_users.conf
+          printf 'smoke:2001:smokeuser\n' > /tmp/smoke_config/sftp_projects.conf
+
+          docker run -d --name smoke-sftp \
+            -v /tmp/smoke_host_ed25519_key:/run/secrets/ssh_host_ed25519_key:ro \
+            -v /tmp/smoke_config:/config:ro \
+            zocalo-sftp:test
+
+          # Wait for the built-in HEALTHCHECK to report healthy.
+          # The healthcheck uses socat internally; we never need nc.
+          timeout 60 sh -c \
+            'until docker inspect --format="{{.State.Health.Status}}" smoke-sftp \
+               | grep -q "^healthy$"; do sleep 2; done'
+
+          docker rm -f smoke-sftp
+
+  # ─── Job 3: Integration tests (one runner per example) ─────────────────────
+  #
+  # Each example runs on its own dedicated runner, so all nine execute in
+  # parallel without port conflicts. The image is rebuilt from the GHA layer
+  # cache (populated by build-and-scan above), making the rebuild essentially
+  # instant, just a cache fetch.
+  #
+  # SFTP_IMAGE is injected so test scripts skip their local docker_build call
+  # and compose picks up the pre-loaded image instead of building it again.
+  integration-tests:
+    name: Integration / ${{ matrix.example }}
+    runs-on: ubuntu-latest
+    needs: build-and-scan
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - example: 01-basic-dev
+          - example: 02-docker-secrets
+          - example: 03-cloud-native
+          - example: 04-multi-project
+          - example: 05-certificate-auth
+          - example: 06-password-auth
+            needs_expect: true
+          - example: 07-2fa
+            needs_expect: true
+          - example: 08-custom-config
+          - example: 10-security-boundary
+
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Install expect
+        if: ${{ matrix.needs_expect }}
+        run: sudo apt-get install -y expect
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
+
+      # Rebuild from layer cache. No cache-to, to avoid a redundant write.
+      # This is a read-only restore of the layers cached by build-and-scan.
+      - name: Restore image from build cache
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8  # v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: zocalo-sftp:test
+          cache-from: type=gha
+
+      - name: Run ${{ matrix.example }} tests
+        env:
+          SFTP_IMAGE: zocalo-sftp:test
+        run: |
+          cd examples/${{ matrix.example }}
+          ./test.sh
+
+  # ─── Job: Kubernetes example (kind + Calico) ────────────────────────────────
+  # Separate from integration-tests above: different tooling (kubectl/kind,
+  # not Docker Compose) and noticeably slower, since it stands up and tears
+  # down a real disposable Kubernetes cluster with Calico installed for actual
+  # NetworkPolicy enforcement. See examples/09-kubernetes/README.md for why
+  # that matters. install_only:true below only installs the kind/kubectl
+  # binaries; test.sh creates and tears down its own cluster, exactly as it
+  # does locally, so there's one code path for cluster lifecycle, not two.
+  kubernetes-test:
+    name: Kubernetes example
+    runs-on: ubuntu-latest
+    needs: build-and-scan
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
+
+      # Rebuild from layer cache. No cache-to, to avoid a redundant write.
+      - name: Restore image from build cache
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8  # v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: zocalo-sftp:test
+          cache-from: type=gha
+
+      - name: Install kind and kubectl
+        uses: helm/kind-action@99576bfa6ddf9a8e612d83b513da5a75875caced  # v1.9.0
+        with:
+          install_only: true
+
+      - name: Run 09-kubernetes tests
+        env:
+          SFTP_IMAGE: zocalo-sftp:test
+        run: |
+          cd examples/09-kubernetes
+          ./test.sh

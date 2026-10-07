@@ -1,0 +1,99 @@
+services:
+  sftp:
+    image: ${SFTP_IMAGE:-wiesion/zocalo-sftp:latest}
+    build:
+      context: ../..
+    container_name: sftp  # deterministic name so vector's docker_logs source can target it
+    ports:
+      - "127.0.0.1:2222:22"
+      - "[::1]:2222:22"
+      - "9100:9100"  # Metrics endpoint
+
+    environment:
+      # Cloud-native features
+      SFTP_ENABLE_METRICS: yes       # Prometheus metrics on :9100
+      SFTP_PROJECT_MODE: "770"       # Default: only project members can access
+      SFTP_RECONCILE_INTERVAL: "5"   # Check config files every 5 s (default: 15)
+
+      # Performance tuning for large deployments
+      SFTP_RESET_USERS: no           # Skip user cleanup on restart
+      SFTP_RESET_PROJECTS: no        # Skip project reset on restart
+
+      # Log levels
+      SSHD_LOG_LEVEL: VERBOSE
+      SFTP_LOG_LEVEL: INFO
+
+    secrets:
+      - ssh_host_ed25519_key
+      - londo.authorized_keys
+      - vir.authorized_keys
+
+    volumes:
+      - ./data:/sftp-jail/projects
+      # Mount the entire config directory so file replacements (mv, awk rewrites)
+      # are immediately visible inside the container regardless of inode changes.
+      # Includes sshd_config.d drop-ins, sftp_users.conf, sftp_projects.conf,
+      # and .generation (the reconcile trigger counter).
+      - ./config:/config:ro
+
+    restart: unless-stopped
+
+    # Container hardening: drop all Linux capabilities, then add back only
+    # what sshd and the startup script actually need.
+    # no-new-privileges prevents SUID binaries from escalating.
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN            # chown calls during user/project setup
+      - DAC_OVERRIDE     # read/write /etc/shadow (mode 0000 on wolfi)
+      - FSETID           # keep setgid on project directories (new files inherit the project group)
+      - NET_BIND_SERVICE # bind to port 22 and 9100 (metrics is enabled here)
+      - SETGID           # group operations and sshd privilege separation
+      - SETUID           # user operations and sshd privilege separation
+      - SYS_CHROOT       # sshd ChrootDirectory for the SFTP jail
+    security_opt:
+      - no-new-privileges:true
+
+    # Health check
+    healthcheck:
+      test: ["CMD", "sh", "-c", "sshd -t && timeout 2 socat - TCP:localhost:22 2>/dev/null | grep -q 'SSH-'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  # Optional: Prometheus for metrics visualization
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+
+  # Log shipper: reads the sftp container's plain-text stdout via the Docker
+  # Engine API and structures it. See vector.toml and README.md for why this
+  # lives here rather than inside the sftp container.
+  vector:
+    image: timberio/vector:0.58.0-alpine
+    depends_on:
+      - sftp
+    volumes:
+      - ./vector.toml:/etc/vector/vector.toml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./vector-output:/output
+    command: ["--config", "/etc/vector/vector.toml"]
+
+secrets:
+  ssh_host_ed25519_key:
+    file: ./secrets/ssh_host_ed25519_key
+  londo.authorized_keys:
+    file: ./secrets/londo.authorized_keys
+  vir.authorized_keys:
+    file: ./secrets/vir.authorized_keys
+
+volumes:
+  prometheus_data:

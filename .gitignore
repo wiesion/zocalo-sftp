@@ -1,0 +1,38 @@
+# Editor / IDE / tooling state
+.idea/
+.claude/
+.vscode/
+*.swp
+*.swo
+*~
+*.local.json
+
+# Git worktrees
+.worktrees/
+
+# Root-level Quick Start artifacts, created when following the README
+# directly in a clone of this repo. examples/*/config/ is intentionally NOT
+# covered by this: those are committed fixtures the examples ship with.
+/config/
+/secrets/
+/data/
+
+# Runtime-generated keys, passwords, and project data for every example
+# (examples/NN-*/setup.sh and test.sh create these locally). Never commit.
+examples/*/secrets/
+examples/*/data/
+
+# Vector's structured-log output in 03-cloud-native (runtime artifact)
+examples/03-cloud-native/vector-output/
+
+# Generated SBOM and vulnerability reports (produced by scripts/generate-sbom.sh)
+sbom.spdx.json
+sbom.cyclonedx.json
+vulnerabilities.json
+vulnerabilities.txt
+
+# Rust build artifacts for reconciled/. Cargo.lock IS committed (reproducible builds)
+reconciled/target/
+
+# 10-security-boundary generates its config at test time
+examples/10-security-boundary/config/

@@ -1,0 +1,54 @@
+services:
+  sftp:
+    image: ${SFTP_IMAGE:-wiesion/zocalo-sftp:latest}
+    build:
+      context: ../..
+    ports:
+      - "127.0.0.1:2222:22"
+      - "[::1]:2222:22"
+
+    environment:
+      # Password-only authentication: users connect with a plaintext password
+      # read from /run/secrets/<username>.password at container start.
+      # No SSH keys are required or accepted.
+      SFTP_AUTH_MODE: "password"
+
+      SSHD_LOG_LEVEL: INFO
+      SFTP_LOG_LEVEL: ERROR
+
+    secrets:
+      - ssh_host_ed25519_key
+      - delenn.password
+      - marcus.password
+
+    volumes:
+      - ./data:/sftp-jail/projects
+
+      # User and project config (sftp_users.conf, sftp_projects.conf)
+      - ./config:/config:ro
+
+    restart: unless-stopped
+
+    # Container hardening: drop all Linux capabilities, then add back only
+    # what sshd and the startup script actually need.
+    # no-new-privileges prevents SUID binaries from escalating.
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN            # chown calls during user/project setup
+      - DAC_OVERRIDE     # read/write /etc/shadow (mode 0000 on wolfi)
+      - FSETID           # keep setgid on project directories (new files inherit the project group)
+      - NET_BIND_SERVICE # bind to port 22
+      - SETGID           # group operations and sshd privilege separation
+      - SETUID           # user operations and sshd privilege separation
+      - SYS_CHROOT       # sshd ChrootDirectory for the SFTP jail
+    security_opt:
+      - no-new-privileges:true
+
+secrets:
+  ssh_host_ed25519_key:
+    file: ./secrets/ssh_host_ed25519_key
+  delenn.password:
+    file: ./secrets/delenn.password
+  marcus.password:
+    file: ./secrets/marcus.password
