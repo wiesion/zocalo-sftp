@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#151821"/>
+      <stop offset="1" stop-color="#101218"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <!-- subtle plaza grid -->
+  <g stroke="#232837" stroke-width="1" opacity="0.7">
+    <line x1="0" y1="157" x2="1200" y2="157"/>
+    <line x1="0" y1="315" x2="1200" y2="315"/>
+    <line x1="0" y1="472" x2="1200" y2="472"/>
+    <line x1="300" y1="0" x2="300" y2="630"/>
+    <line x1="600" y1="0" x2="600" y2="630"/>
+    <line x1="900" y1="0" x2="900" y2="630"/>
+  </g>
+  <!-- wordmark mark -->
+  <g transform="translate(80,90)">
+    <rect x="0" y="0" width="88" height="88" rx="18" fill="none" stroke="#e8843c" stroke-width="7"/>
+    <path d="M24 24 H64 L24 64 H64" fill="none" stroke="#e8843c" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <!-- wordmark -->
+  <text x="196" y="152" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="52" font-weight="700" fill="#f2f4f8">zocalo-sftp</text>
+  <text x="198" y="186" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="20" fill="#8b93a7">hardened sftp server for containers</text>
+  <!-- headline -->
+  <text x="80" y="330" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="58" font-weight="700" fill="#f2f4f8">Native Linux groups.</text>
+  <text x="80" y="400" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="58" font-weight="700" fill="#f2f4f8">No virtual users. No database.</text>
+  <!-- tagline -->
+  <text x="80" y="470" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="22" fill="#aeb6c8">users &amp; projects in two config files, reconciled to /etc/passwd &amp; /etc/group</text>
+  <!-- chips -->
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="18" fill="#aeb6c8">
+    <rect x="80" y="520" width="150" height="40" rx="20" fill="#1c2130"/>
+    <text x="155" y="546" text-anchor="middle">MIT licensed</text>
+    <rect x="248" y="520" width="130" height="40" rx="20" fill="#1c2130"/>
+    <text x="313" y="546" text-anchor="middle">OpenSSH</text>
+    <rect x="396" y="520" width="190" height="40" rx="20" fill="#1c2130"/>
+    <text x="491" y="546" text-anchor="middle">signed (Cosign)</text>
+    <rect x="604" y="520" width="160" height="40" rx="20" fill="#1c2130"/>
+    <text x="684" y="546" text-anchor="middle">SBOM ready</text>
+  </g>
+  <!-- domain -->
+  <text x="80" y="600" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="17" fill="#5c6579">github.com/wiesion/zocalo-sftp</text>
+</svg>

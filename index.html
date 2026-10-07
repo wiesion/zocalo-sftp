@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="en" class="no-js">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>zocalo-sftp: Hardened SFTP server for containers</title>
+  <meta name="description" content="SFTP server for containers. Native Linux groups and permissions, no virtual users, no database. Users land in /projects/ and see only their projects.">
+  <link rel="canonical" href="https://zocalo-sftp.com/">
+
+  <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
+  <link rel="apple-touch-icon" sizes="180x180" href="/assets/apple-touch-icon.png">
+  <meta name="theme-color" content="#101218">
+
+  <!-- Open Graph -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="zocalo-sftp">
+  <meta property="og:title" content="zocalo-sftp — Hardened SFTP server for containers">
+  <meta property="og:description" content="Native Linux groups and permissions, no virtual users, no database. Users land in /projects/ and see only their projects.">
+  <meta property="og:url" content="https://zocalo-sftp.com/">
+  <meta property="og:image" content="https://zocalo-sftp.com/assets/og-image.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="zocalo-sftp: hardened SFTP server for containers — native Linux groups, no virtual users">
+
+  <!-- Twitter -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="zocalo-sftp — Hardened SFTP server for containers">
+  <meta name="twitter:description" content="Native Linux groups and permissions, no virtual users, no database. Users land in /projects/ and see only their projects.">
+  <meta name="twitter:image" content="https://zocalo-sftp.com/assets/og-image.png">
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareSourceCode",
+    "name": "zocalo-sftp",
+    "description": "Hardened SFTP server for containers, using native Linux groups and permissions instead of virtual users.",
+    "url": "https://github.com/wiesion/zocalo-sftp",
+    "license": "https://opensource.org/licenses/MIT",
+    "programmingLanguage": ["Shell", "Rust"],
+    "operatingSystem": "Linux (Docker, Kubernetes)",
+    "applicationCategory": "DeveloperApplication",
+    "isPartOf": {
+      "@type": "ComputerLanguage",
+      "name": "Rust"
+    }
+  }
+  </script>
+
+  <link rel="stylesheet" href="/css/site.css">
+  <script>(function(){try{var t=localStorage.getItem('zocalo-theme');if(t){document.documentElement.setAttribute('data-theme',t);}}catch(e){}document.documentElement.classList.remove('no-js');})();</script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <div class="wrap header-inner">
+      <a class="brand" href="/#top" aria-label="zocalo-sftp home">
+        <svg viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+          <rect x="2" y="2" width="28" height="28" rx="6" fill="none" stroke="currentColor" stroke-width="2.5"/>
+          <path d="M10.5 10.5 H21.5 L10.5 21.5 H21.5" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span>zocalo<span class="brand-sep">-</span>sftp</span>
+      </a>
+      <input type="checkbox" id="nav-toggle" class="nav-toggle-state">
+      <label for="nav-toggle" class="nav-toggle"><span class="sr-only">Toggle navigation menu</span><span class="nav-toggle-icon" aria-hidden="true">☰</span> <span class="nav-toggle-text">menu</span></label>
+      <nav class="site-nav" aria-label="Main navigation">
+        <a href="#idea">Features</a>
+        <a href="#how">How it works</a>
+        <a href="#quickstart">Quick start</a>
+        <a href="#security">Security</a>
+        <a href="#faq">FAQ</a>
+      </nav>
+      <button type="button" class="theme-toggle js-theme-toggle" aria-label="Toggle color theme">
+        <span class="icon-moon" aria-hidden="true">☾</span>
+        <span class="icon-sun" aria-hidden="true">☀</span>
+        <span class="sr-text">theme</span>
+      </button>
+      <a class="btn btn-gh" href="https://github.com/wiesion/zocalo-sftp" rel="noopener" target="_blank">
+        <svg class="gh-oct" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" focusable="false"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+        GitHub
+      </a>
+    </div>
+  </header>
+
+  <main id="main">
+    <span id="top"></span>
+
+    <!-- 2. Hero -->
+    <section class="hero" aria-labelledby="hero-h">
+      <div class="wrap">
+        <h1 id="hero-h">Hardened SFTP server for containers</h1>
+        <p class="lead">Native Linux groups and file permissions instead of virtual users or a database. Users and projects live in two config files; a reconciliation loop keeps the container converged on what you declared.</p>
+        <div class="hero-ctas">
+          <a class="btn btn-primary" href="#quickstart">Quick start</a>
+          <a class="btn" href="https://github.com/wiesion/zocalo-sftp" rel="noopener" target="_blank">View on GitHub</a>
+        </div>
+        <div class="pull-line" role="group" aria-label="Pull the image">
+          <span class="prompt" aria-hidden="true">$</span>
+          <code>docker pull wiesion/zocalo-sftp:latest</code>
+          <button type="button" class="copy-btn" data-copy="docker pull wiesion/zocalo-sftp:latest" aria-label="Copy docker pull command">copy</button>
+        </div>
+        <div class="chips" role="list" aria-label="Project attributes">
+          <span class="chip" role="listitem"><span class="dot" aria-hidden="true">●</span>MIT licensed</span>
+          <span class="chip" role="listitem"><span class="dot" aria-hidden="true">●</span>OpenSSH</span>
+          <span class="chip" role="listitem"><span class="dot" aria-hidden="true">●</span>signed images (Cosign)</span>
+          <span class="chip" role="listitem"><span class="dot" aria-hidden="true">●</span>SBOM available</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3. The idea in three points -->
+    <section id="idea" aria-labelledby="idea-h">
+      <div class="wrap">
+        <span class="section-kicker">The idea</span>
+        <h2 id="idea-h">Three things, nothing more</h2>
+        <div class="three">
+          <div class="point">
+            <h3>Native groups &amp; permissions</h3>
+            <p>Access control is plain Linux group membership and directory permissions. No database, no virtual-user layer, no authorization engine to audit.</p>
+          </div>
+          <div class="point">
+            <h3>Declarative, reconciled</h3>
+            <p>Users and projects are declared in two mounted config files. A reconciliation loop converges <code>/etc/passwd</code>, <code>/etc/shadow</code> and <code>/etc/group</code> toward that state.</p>
+          </div>
+          <div class="point">
+            <h3>Small enough to audit</h3>
+            <p>Roughly 400 lines of shell and config, roughly 1200 lines of Rust. No framework, no runtime magic — one repo you can read end to end.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4. Features -->
+    <section id="features" aria-labelledby="features-h">
+      <div class="wrap">
+        <span class="section-kicker">Features</span>
+        <h2 id="features-h">What you get</h2>
+        <div class="features-grid">
+          <div class="feat">
+            <h3><span class="icon" aria-hidden="true">▣</span>SFTP-only, chrooted</h3>
+            <p>Users land in <code>/projects/</code> and see only the projects their group is a member of. No shell, no root.</p>
+          </div>
+          <div class="feat">
+            <h3><span class="icon" aria-hidden="true">⛨</span>Project isolation by permissions</h3>
+            <p>setgid group directories, parent owned by root — users can't delete whole projects.</p>
+          </div>
+          <div class="feat">
+            <h3><span class="icon" aria-hidden="true">⚿</span>Auth modes via one variable</h3>
+            <p>pubkey (default, ed25519), CA certificates, password, and combinations including 2FA (<code>pubkey,password</code>).</p>
+          </div>
+          <div class="feat">
+            <h3><span class="icon" aria-hidden="true">↻</span>Live reconciliation</h3>
+            <p>Every 15s by default, or immediately on a <code>.generation</code> bump. Key and password rotation without restart.</p>
+          </div>
+          <div class="feat">
+            <h3><span class="icon" aria-hidden="true">⚛</span>Modern crypto only</h3>
+            <p>ed25519 keys, curve25519 / sntrup761x25519 KEX, AEAD ciphers. Root login, empty passwords and shell access are always disabled.</p>
+          </div>
+          <div class="feat">
+            <h3><span class="icon" aria-hidden="true">∿</span>Prometheus metrics</h3>
+            <p>Opt-in on port 9100: active connections, active users, disk usage, per-project usage.</p>
+          </div>
+          <div class="feat">
+            <h3><span class="icon" aria-hidden="true">≡</span>Plain-text logs</h3>
+            <p>One line per event to stdout, ready for any log shipper. A complete Vector example is included.</p>
+          </div>
+          <div class="feat">
+            <h3><span class="icon" aria-hidden="true">⬡</span>Container hardening</h3>
+            <p><code>cap_drop: ALL</code> with a minimal allowlist, <code>no-new-privileges</code>, Wolfi base image, no shadow-utils.</p>
+          </div>
+          <div class="feat">
+            <h3><span class="icon" aria-hidden="true">✎</span>Signed images</h3>
+            <p>Cosign keyless signatures on every release, plus an SBOM generation script (syft, SPDX + CycloneDX).</p>
+          </div>
+          <div class="feat">
+            <h3><span class="icon" aria-hidden="true">⚙</span>Kubernetes manifests</h3>
+            <p>StatefulSet, split liveness/readiness probes, NetworkPolicy — tested on kind + Calico.</p>
+          </div>
+          <div class="feat">
+            <h3><span class="icon" aria-hidden="true">⇄</span>Any SFTP client</h3>
+            <p>FileZilla, WinSCP, Cyberduck, or the command line: <code>sftp</code>, <code>pscp -sftp</code>.</p>
+          </div>
+          <div class="feat">
+            <h3><span class="icon" aria-hidden="true">⤴</span>Migration path</h3>
+            <p>Moving from <code>atmoz/sftp</code> or <code>emberstack/sftp-server</code>? The config format needs adaptation, but the model is familiar.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5. How it works -->
+    <section id="how" aria-labelledby="how-h">
+      <div class="wrap">
+        <span class="section-kicker">How it works</span>
+        <h2 id="how-h">Declare it, and it converges</h2>
+        <div class="diagram-wrap">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 408" role="img" aria-labelledby="hiw-title hiw-desc" class="diagram">
+            <title id="hiw-title">How zocalo-sftp works</title>
+            <desc id="hiw-desc">Two read-only config files, sftp_users.conf and sftp_projects.conf, are watched by sftp-reconciled, a small Rust binary that runs an init pass then a watch loop. It converges the system's real users and groups in /etc/passwd, /etc/shadow and /etc/group, and the chrooted project directories under /projects/. sshd authenticates each user against that identity and serves them chrooted in /projects/, so every user sees only the projects their group owns. Touching .generation forces an immediate reconcile; otherwise it re-applies on a 15-second tick.</desc>
+            <defs>
+              <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--diag-arrow)"/>
+              </marker>
+            </defs>
+
+            <!-- config: two files, mounted read-only -->
+            <g class="frame">
+              <rect x="16" y="64" width="196" height="152" rx="8"/>
+            </g>
+            <text x="114" y="82" class="faint small">config · mounted read-only</text>
+            <g class="node">
+              <rect x="32" y="94" width="164" height="48" rx="6"/>
+              <text x="114" y="114" class="mono small">sftp_users.conf</text>
+              <text x="114" y="131" class="faint small">username : uid</text>
+            </g>
+            <g class="node">
+              <rect x="32" y="160" width="164" height="48" rx="6"/>
+              <text x="114" y="180" class="mono small">sftp_projects.conf</text>
+              <text x="114" y="197" class="faint small">name : gid : users</text>
+            </g>
+
+            <!-- reconciler: the hub -->
+            <g class="node accent-node">
+              <rect x="300" y="148" width="240" height="92" rx="8"/>
+              <text x="420" y="180" class="mono">sftp-reconciled</text>
+              <text x="420" y="201" class="faint small">init + watch loop · Rust</text>
+              <text x="420" y="219" class="faint small">inotify .generation · 15s tick</text>
+            </g>
+
+            <!-- converged identity -->
+            <g class="node">
+              <rect x="648" y="76" width="236" height="76" rx="8"/>
+              <text x="766" y="102" class="mono small">/etc/passwd</text>
+              <text x="766" y="120" class="mono small">/shadow · /group</text>
+              <text x="766" y="140" class="faint small">real users &amp; groups</text>
+            </g>
+
+            <!-- converged project dirs -->
+            <g class="node">
+              <rect x="258" y="272" width="324" height="104" rx="8"/>
+              <text x="420" y="298" class="mono">/projects/</text>
+              <text x="274" y="322" class="mono small left">├── station-ops/  <tspan class="faint">sheridan, garibaldi</tspan></text>
+              <text x="274" y="342" class="mono small left">└── medical/      <tspan class="faint">franklin only</tspan></text>
+              <text x="274" y="364" class="faint small left">setgid dirs · parent owned by root</text>
+            </g>
+
+            <!-- sshd: authenticates + serves chrooted -->
+            <g class="node">
+              <rect x="648" y="272" width="236" height="92" rx="8"/>
+              <text x="766" y="300" class="mono">sshd</text>
+              <text x="766" y="321" class="faint small">chroot jail · SFTP-only</text>
+              <text x="766" y="339" class="faint small">no shell · no root login</text>
+            </g>
+
+            <!-- edges -->
+            <line x1="212" y1="118" x2="300" y2="176" class="edge" marker-end="url(#arrow)"/>
+            <line x1="212" y1="184" x2="300" y2="212" class="edge" marker-end="url(#arrow)"/>
+            <line x1="540" y1="172" x2="648" y2="114" class="edge" marker-end="url(#arrow)"/>
+            <text x="584" y="130" class="faint small">users + groups</text>
+            <line x1="420" y1="240" x2="420" y2="270" class="edge" marker-end="url(#arrow)"/>
+            <text x="432" y="259" class="faint small left">project dirs</text>
+            <line x1="766" y1="152" x2="766" y2="270" class="edge" marker-end="url(#arrow)"/>
+            <text x="778" y="212" class="faint small left">auth</text>
+            <line x1="582" y1="324" x2="648" y2="318" class="edge" marker-end="url(#arrow)"/>
+            <text x="615" y="308" class="faint small">chroot</text>
+
+            <text x="450" y="396" class="faint small">Each user lands chrooted in /projects/ and sees only the projects their group owns.</text>
+          </svg>
+        </div>
+        <div class="steps">
+          <div class="step">
+            <h3>Declare</h3>
+            <p>Write <code>sftp_users.conf</code> and <code>sftp_projects.conf</code>. That's the whole configuration.</p>
+          </div>
+          <div class="step">
+            <h3>Mount</h3>
+            <p>Mount <code>./config</code> read-only and your secrets as Docker/Kubernetes secrets.</p>
+          </div>
+          <div class="step">
+            <h3>Reconcile</h3>
+            <p><code>sftp-reconciled</code> validates, renders <code>sshd_config</code>, then converges users, groups and project dirs — on start and on every change.</p>
+          </div>
+          <div class="step">
+            <h3>Connect</h3>
+            <p>Any SFTP client, any user from your config, lands chrooted in <code>/projects/</code> with exactly their share.</p>
+          </div>
+        </div>
+        <p class="gap-block"><a href="https://github.com/wiesion/zocalo-sftp/blob/main/ARCHITECTURE.md" rel="noopener" target="_blank">Read ARCHITECTURE.md →</a> startup sequence, reconciliation internals, sshd_config include ordering, logging pipeline.</p>
+      </div>
+    </section>
+
+    <!-- 6. Quick start -->
+    <section id="quickstart" aria-labelledby="qs-h">
+      <div class="wrap">
+        <span class="section-kicker">Quick start</span>
+        <h2 id="qs-h">Up in five minutes</h2>
+        <p class="lead">Two config files, one compose file, four ed25519 keys. Reproduced verbatim from the <a href="https://github.com/wiesion/zocalo-sftp/blob/main/README.md#quick-start" rel="noopener" target="_blank">README</a>.</p>
+
+        <div class="tabs js-tabs" data-tabs>
+          <div class="tablist" role="tablist" aria-label="Quick start steps">
+            <button type="button" class="tab-btn" role="tab" id="tab-1" aria-selected="true" aria-controls="panel-1">1 · Users</button>
+            <button type="button" class="tab-btn" role="tab" id="tab-2" aria-selected="false" aria-controls="panel-2" tabindex="-1">2 · Projects</button>
+            <button type="button" class="tab-btn" role="tab" id="tab-3" aria-selected="false" aria-controls="panel-3" tabindex="-1">3 · Compose</button>
+            <button type="button" class="tab-btn" role="tab" id="tab-4" aria-selected="false" aria-controls="panel-4" tabindex="-1">4 · Keys</button>
+            <button type="button" class="tab-btn" role="tab" id="tab-5" aria-selected="false" aria-controls="panel-5" tabindex="-1">5 · Connect</button>
+          </div>
+
+          <div class="panel active" role="tabpanel" id="panel-1" aria-labelledby="tab-1" tabindex="0">
+            <span class="tab-label">config/sftp_users.conf — format: username:uid</span>
+            <div class="codeblock">
+              <div class="cb-label"><span class="fname">config/sftp_users.conf</span></div>
+              <button type="button" class="copy-btn" aria-label="Copy sftp_users.conf" data-copy-sibling>copy</button>
+<pre><code><span class="tk-com"># sftp_users.conf - username:uid</span>
+sheridan:1001
+garibaldi:1002
+franklin:1003</code></pre>
+            </div>
+          </div>
+
+          <div class="panel" role="tabpanel" id="panel-2" aria-labelledby="tab-2" tabindex="0">
+            <span class="tab-label">config/sftp_projects.conf — format: project_name:gid:user1,user2,…</span>
+            <div class="codeblock">
+              <div class="cb-label"><span class="fname">config/sftp_projects.conf</span></div>
+              <button type="button" class="copy-btn" aria-label="Copy sftp_projects.conf" data-copy-sibling>copy</button>
+<pre><code><span class="tk-com"># sftp_projects.conf - project_name:gid:user1,user2,...</span>
+station-ops:2001:sheridan,garibaldi
+medical:2002:franklin</code></pre>
+            </div>
+          </div>
+
+          <div class="panel" role="tabpanel" id="panel-3" aria-labelledby="tab-3" tabindex="0">
+            <span class="tab-label">docker-compose.yml</span>
+            <div class="codeblock">
+              <div class="cb-label"><span class="fname">docker-compose.yml</span></div>
+              <button type="button" class="copy-btn" aria-label="Copy compose file" data-copy-sibling>copy</button>
+<pre><code>services:
+  sftp:
+    image: wiesion/zocalo-sftp:latest
+    ports:
+      - <span class="tk-str">"2222:22"</span>
+    secrets:
+      - ssh_host_ed25519_key
+      - sheridan.authorized_keys
+      - garibaldi.authorized_keys
+      - franklin.authorized_keys
+    volumes:
+      - ./data:/sftp-jail/projects
+      - ./config:/config:ro
+    <span class="tk-com"># Runtime hardening, explained under Container Hardening below.</span>
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FSETID, NET_BIND_SERVICE, SETGID, SETUID, SYS_CHROOT]
+    security_opt: [<span class="tk-str">"no-new-privileges:true"</span>]
+
+secrets:
+  ssh_host_ed25519_key:
+    file: ./secrets/ssh_host_ed25519_key
+  sheridan.authorized_keys:
+    file: ./secrets/sheridan_key.pub
+  garibaldi.authorized_keys:
+    file: ./secrets/garibaldi_key.pub
+  franklin.authorized_keys:
+    file: ./secrets/franklin_key.pub</code></pre>
+            </div>
+          </div>
+
+          <div class="panel" role="tabpanel" id="panel-4" aria-labelledby="tab-4" tabindex="0">
+            <span class="tab-label">Generate keys</span>
+            <div class="codeblock">
+              <div class="cb-label"><span class="fname">shell</span></div>
+              <button type="button" class="copy-btn" aria-label="Copy key generation commands" data-copy-sibling>copy</button>
+<pre><code>ssh-keygen -t ed25519 -f secrets/ssh_host_ed25519_key -N <span class="tk-str">""</span>
+ssh-keygen -t ed25519 -f secrets/sheridan_key -N <span class="tk-str">""</span>
+ssh-keygen -t ed25519 -f secrets/garibaldi_key -N <span class="tk-str">""</span>
+ssh-keygen -t ed25519 -f secrets/franklin_key -N <span class="tk-str">""</span></code></pre>
+            </div>
+          </div>
+
+          <div class="panel" role="tabpanel" id="panel-5" aria-labelledby="tab-5" tabindex="0">
+            <span class="tab-label">Connect</span>
+            <div class="codeblock">
+              <div class="cb-label"><span class="fname">shell</span></div>
+              <button type="button" class="copy-btn" aria-label="Copy connect commands" data-copy-sibling>copy</button>
+<pre><code>sftp -P 2222 -i secrets/sheridan_key sheridan@localhost
+sftp&gt; cd station-ops
+sftp&gt; put report.txt</code></pre>
+            </div>
+          </div>
+        </div>
+
+        <p>Every snippet above is verbatim from the README's <a href="https://github.com/wiesion/zocalo-sftp/blob/main/README.md#quick-start" rel="noopener" target="_blank">Quick Start</a>. Working Docker Compose setups for each scenario are in <a href="https://github.com/wiesion/zocalo-sftp/tree/main/examples" rel="noopener" target="_blank">examples/</a>.</p>
+      </div>
+    </section>
+
+    <!-- 7. Authentication modes -->
+    <section id="auth" aria-labelledby="auth-h">
+      <div class="wrap">
+        <span class="section-kicker">Authentication</span>
+        <h2 id="auth-h">One variable, nine modes</h2>
+        <p>Authentication is controlled entirely by <code>SFTP_AUTH_MODE</code>. Default: <code>pubkey</code> (ed25519 public key only). <code>|</code> = OR — any listed mechanism is sufficient. <code>,</code> = AND — all listed mechanisms are required (2FA).</p>
+        <div class="table-wrap">
+          <table>
+            <caption>SFTP_AUTH_MODE — copied from the README</caption>
+            <thead>
+              <tr><th scope="col">Mode</th><th scope="col">Accepts</th><th scope="col">Requires secret(s)</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><code>pubkey</code> <em>(default)</em></td><td>ed25519 public key</td><td><code>username.authorized_keys</code></td></tr>
+              <tr><td><code>cert</code></td><td>CA-signed certificate</td><td><code>ssh_user_ca.pub</code></td></tr>
+              <tr><td><code>pubkey|cert</code></td><td>Public key <strong>or</strong> certificate</td><td><code>username.authorized_keys</code> + <code>ssh_user_ca.pub</code></td></tr>
+              <tr><td><code>password</code></td><td>Password</td><td><code>username.password</code></td></tr>
+              <tr><td><code>pubkey|password</code></td><td>Public key <strong>or</strong> password</td><td><code>username.authorized_keys</code> + <code>username.password</code></td></tr>
+              <tr><td><code>cert|password</code></td><td>Certificate <strong>or</strong> password</td><td><code>ssh_user_ca.pub</code> + <code>username.password</code></td></tr>
+              <tr><td><code>any</code></td><td>Any of the above</td><td>All or some of the above</td></tr>
+              <tr><td><code>pubkey,password</code></td><td>Public key <strong>and</strong> password (2FA)</td><td><code>username.authorized_keys</code> + <code>username.password</code></td></tr>
+              <tr><td><code>cert,password</code></td><td>Certificate <strong>and</strong> password (2FA)</td><td><code>ssh_user_ca.pub</code> + <code>username.password</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="gap-block"><a href="https://github.com/wiesion/zocalo-sftp/blob/main/README.md#authentication" rel="noopener" target="_blank">Authentication section in the README →</a> secret paths, rotation behaviour, per-group overrides.</p>
+      </div>
+    </section>
+
+    <!-- 8. Security -->
+    <section id="security" aria-labelledby="sec-h">
+      <div class="wrap">
+        <span class="section-kicker">Security</span>
+        <h2 id="sec-h">Small surface, audited by you</h2>
+        <p class="lead">This project is not a complete security solution — it has no built-in IP banning, rate limiting, or intrusion detection. What it does: a minimal attack surface and the primitives to audit every layer yourself.</p>
+        <div class="security-grid gap-block">
+          <div class="sec-card">
+            <h3>Cryptography</h3>
+            <ul>
+              <li>Host keys: ed25519 only</li>
+              <li>KEX: sntrup761x25519-sha512, curve25519-sha256</li>
+              <li>Ciphers: AES-GCM, ChaCha20-Poly1305 (AEAD only)</li>
+              <li>Public keys: ed25519, including certificate signatures</li>
+              <li>Always disabled: root login, empty passwords, shell access</li>
+            </ul>
+          </div>
+          <div class="sec-card">
+            <h3>Container hardening</h3>
+            <ul>
+              <li>Wolfi base image, no shadow-utils</li>
+              <li><code>cap_drop: ALL</code> + minimal allowlist</li>
+              <li><code>no-new-privileges</code> / <code>allowPrivilegeEscalation: false</code></li>
+              <li>Users chrooted; SFTP subsystem only</li>
+              <li>Startup refuses colliding UIDs/GIDs and jail-weakening drop-ins</li>
+            </ul>
+          </div>
+          <div class="sec-card">
+            <h3>Supply chain</h3>
+            <ul>
+              <li>Cosign keyless signatures on every release</li>
+              <li>SBOM script: SPDX + CycloneDX via syft</li>
+              <li><code>Dockerfile</code> builds standalone, no CI required</li>
+            </ul>
+          </div>
+        </div>
+
+        <p class="gap-block">Report vulnerabilities through <a href="https://github.com/wiesion/zocalo-sftp/blob/main/SECURITY.md" rel="noopener" target="_blank">SECURITY.md</a> (GitHub Private Vulnerability Reporting, not a public issue). The README's <a href="https://github.com/wiesion/zocalo-sftp/blob/main/README.md#security" rel="noopener" target="_blank">Security</a> section covers the full capability list and the reasoning behind it.</p>
+      </div>
+    </section>
+
+    <!-- 9. Honest fit check -->
+    <section id="fit" aria-labelledby="fit-h">
+      <div class="wrap">
+        <span class="section-kicker">Honest fit check</span>
+        <h2 id="fit-h">Is this the right tool?</h2>
+        <div class="fit">
+          <div class="fit-col use">
+            <h3><span aria-hidden="true">✓</span> Use this if you need…</h3>
+            <ul>
+              <li>SFTP access for developers, clients, or automated systems</li>
+              <li>File sharing or collaboration via standard SFTP clients</li>
+              <li>Deployment targets for applications that push files via SFTP</li>
+              <li>A legacy FTP server replacement</li>
+              <li>Something you can understand completely by reading ~400 lines of shell/config and ~1200 lines of Rust</li>
+            </ul>
+          </div>
+          <div class="fit-col avoid">
+            <h3><span aria-hidden="true">✗</span> Look elsewhere if you need…</h3>
+            <ul>
+              <li>A web UI for user management</li>
+              <li>Virtual / database-backed users — <a href="https://github.com/drakkan/sftpgo" rel="noopener" target="_blank">sftpgo</a> is the better choice</li>
+              <li>S3 or cloud storage backends — again, sftpgo's territory</li>
+              <li>Advanced quota management or a REST API for automation</li>
+              <li>Built-in IP banning or intrusion detection — that's your SIEM or a fail2ban sidecar</li>
+            </ul>
+          </div>
+        </div>
+        <p class="gap-block">Full text in the README's <a href="https://github.com/wiesion/zocalo-sftp/blob/main/README.md#what-this-is-and-isnt" rel="noopener" target="_blank">"What This Is (and Isn't)"</a> section.</p>
+      </div>
+    </section>
+
+    <!-- 10. Examples -->
+    <section id="examples" aria-labelledby="ex-h">
+      <div class="wrap">
+        <span class="section-kicker">Examples</span>
+        <h2 id="ex-h">Ten working setups</h2>
+        <p class="lead">Each example ships with <code>setup.sh</code> (interactive) and <code>test.sh</code> (automated: auth, visibility, file operations, permissions).</p>
+        <ul class="examples-list">
+          <li>
+            <span class="ex-name"><a href="https://github.com/wiesion/zocalo-sftp/tree/main/examples/01-basic-dev" rel="noopener" target="_blank">01-basic-dev</a></span>
+            <p class="ex-desc">Local development with volume-mounted secrets.</p>
+          </li>
+          <li>
+            <span class="ex-name"><a href="https://github.com/wiesion/zocalo-sftp/tree/main/examples/02-docker-secrets" rel="noopener" target="_blank">02-docker-secrets</a></span>
+            <p class="ex-desc">Production deployment with Docker secrets.</p>
+          </li>
+          <li>
+            <span class="ex-name"><a href="https://github.com/wiesion/zocalo-sftp/tree/main/examples/03-cloud-native" rel="noopener" target="_blank">03-cloud-native</a></span>
+            <p class="ex-desc">Prometheus metrics, log shipping to Vector, custom SSH config.</p>
+          </li>
+          <li>
+            <span class="ex-name"><a href="https://github.com/wiesion/zocalo-sftp/tree/main/examples/04-multi-project" rel="noopener" target="_blank">04-multi-project</a></span>
+            <p class="ex-desc">Complex access patterns with multiple teams.</p>
+          </li>
+          <li>
+            <span class="ex-name"><a href="https://github.com/wiesion/zocalo-sftp/tree/main/examples/05-certificate-auth" rel="noopener" target="_blank">05-certificate-auth</a></span>
+            <p class="ex-desc">CA certificate authentication with <code>SFTP_AUTH_MODE: cert</code>.</p>
+          </li>
+          <li>
+            <span class="ex-name"><a href="https://github.com/wiesion/zocalo-sftp/tree/main/examples/06-password-auth" rel="noopener" target="_blank">06-password-auth</a></span>
+            <p class="ex-desc">Password authentication with <code>SFTP_AUTH_MODE: password</code>.</p>
+          </li>
+          <li>
+            <span class="ex-name"><a href="https://github.com/wiesion/zocalo-sftp/tree/main/examples/07-2fa" rel="noopener" target="_blank">07-2fa</a></span>
+            <p class="ex-desc">Two-factor authentication with <code>SFTP_AUTH_MODE: pubkey,password</code>.</p>
+          </li>
+          <li>
+            <span class="ex-name"><a href="https://github.com/wiesion/zocalo-sftp/tree/main/examples/08-custom-config" rel="noopener" target="_blank">08-custom-config</a></span>
+            <p class="ex-desc">Drop-in <code>sshd_config.d</code> files for per-group and per-user overrides.</p>
+          </li>
+          <li>
+            <span class="ex-name"><a href="https://github.com/wiesion/zocalo-sftp/tree/main/examples/09-kubernetes" rel="noopener" target="_blank">09-kubernetes</a></span>
+            <p class="ex-desc">StatefulSet, split liveness/readiness probes, tested NetworkPolicy (kind + Calico).</p>
+          </li>
+          <li>
+            <span class="ex-name"><a href="https://github.com/wiesion/zocalo-sftp/tree/main/examples/10-security-boundary" rel="noopener" target="_blank">10-security-boundary</a></span>
+            <p class="ex-desc">Adversarial tests: hostile config, a hostile non-member client, drift repair, revocation on removal.</p>
+          </li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- 11. FAQ -->
+    <section id="faq" aria-labelledby="faq-h">
+      <div class="wrap">
+        <span class="section-kicker">FAQ</span>
+        <h2 id="faq-h">Common questions</h2>
+        <div class="faq">
+          <details>
+            <summary>Why not virtual users?</summary>
+            <div class="faq-body">
+              <p>Because the access-control model is then just the Linux permission model you already understand: groups, ownership, setgid. No database, no bespoke authorization layer, no second mental model. The tradeoff: user management is declarative config, not a dynamic API. If you need a web UI or database-backed users, <a href="https://github.com/drakkan/sftpgo" rel="noopener" target="_blank">sftpgo</a> is the right tool.</p>
+            </div>
+          </details>
+          <details>
+            <summary>How do I add a user?</summary>
+            <div class="faq-body">
+              <p>Three steps: add a line to <code>sftp_users.conf</code> (and a project line if they need one), provide the <code>username.authorized_keys</code> secret, then bump the generation counter to trigger an immediate reconcile:</p>
+              <div class="codeblock">
+                <div class="cb-label"><span class="fname">shell</span></div>
+                <button type="button" class="copy-btn" aria-label="Copy generation bump command" data-copy-sibling>copy</button>
+<pre><code>printf '%s\n' "$(($(cat config/.generation) + 1))" > config/.generation</code></pre>
+              </div>
+              <p>Without the bump, the reconcile loop picks it up within <code>SFTP_RECONCILE_INTERVAL</code> seconds (default 15). See <a href="https://github.com/wiesion/zocalo-sftp/blob/main/README.md#runtime-reconciliation" rel="noopener" target="_blank">Runtime Reconciliation</a>.</p>
+            </div>
+          </details>
+          <details>
+            <summary>Does it support PROXY protocol, or show real client IPs behind a load balancer?</summary>
+            <div class="faq-body">
+              <p>No. sshd has no native PROXY protocol support — pointing a proxy that sends those headers directly at this container breaks the connection outright, not just the IP. Behind a SNAT-performing load balancer, sshd logs the balancer's IP. For Kubernetes, set <code>externalTrafficPolicy: Local</code> on your Service to avoid kube-proxy SNAT (at the cost of uneven load across nodes). See <a href="https://github.com/wiesion/zocalo-sftp/blob/main/README.md#client-ip-behind-a-proxy-or-load-balancer" rel="noopener" target="_blank">Client IP Behind a Proxy or Load Balancer</a>.</p>
+            </div>
+          </details>
+          <details>
+            <summary>What capabilities does the container need, and why?</summary>
+            <div class="faq-body">
+              <p><code>cap_drop: ALL</code>, then exactly seven back: <code>CHOWN</code> (file ownership during setup), <code>DAC_OVERRIDE</code> (writing <code>/etc/shadow</code>, which ships mode 0000 on Wolfi), <code>MKNOD</code> (device nodes in the chroot), <code>NET_BIND_SERVICE</code> (port 22 and 9100), <code>SETGID</code> and <code>SETUID</code> (user/group operations, sshd privilege separation), and <code>SYS_CHROOT</code> (the SFTP jail). Full list with the Kubernetes equivalent in the README's <a href="https://github.com/wiesion/zocalo-sftp/blob/main/README.md#container-hardening" rel="noopener" target="_blank">Container Hardening</a> section.</p>
+            </div>
+          </details>
+          <details>
+            <summary>Does it log file operations?</summary>
+            <div class="faq-body">
+              <p>Only at <code>SFTP_LOG_LEVEL: INFO</code> or more verbose. The default, <code>ERROR</code>, logs failures only — a normal upload or delete produces no log line. Upload, download, delete, rename and mkdir appear in the <code>internal-sftp</code> stream at <code>INFO</code>. See <a href="https://github.com/wiesion/zocalo-sftp/blob/main/README.md#logging" rel="noopener" target="_blank">Logging</a>.</p>
+            </div>
+          </details>
+          <details>
+            <summary>Where do I report a vulnerability?</summary>
+            <div class="faq-body">
+              <p>GitHub's <a href="https://github.com/wiesion/zocalo-sftp/blob/main/SECURITY.md" rel="noopener" target="_blank">Private Vulnerability Reporting</a>, not a public issue — Security tab → Report a vulnerability. Only the latest tagged release receives security fixes; re-pull <code>:latest</code> rather than expecting patches on older tags.</p>
+            </div>
+          </details>
+          <details>
+            <summary>Is it production-ready?</summary>
+            <div class="faq-body">
+              <p>The original image ran in production for years in a Docker Swarm deployment before being published. This public version added the test coverage, Kubernetes manifests and documentation that publishing required. The maintainer's honest framing: this is a small, composable piece of infrastructure that trusts you to configure it correctly — the README's <a href="https://github.com/wiesion/zocalo-sftp/blob/main/README.md#operator-responsibilities" rel="noopener" target="_blank">Operator Responsibilities</a> section spells out exactly what is and isn't validated.</p>
+            </div>
+          </details>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12. About -->
+    <section id="about" class="about" aria-labelledby="about-h">
+      <div class="wrap">
+        <span class="section-kicker">About</span>
+        <h2 id="about-h">Origin &amp; disclosure</h2>
+        <p>zocalo-sftp started as a manually written Docker image that ran in production for years as part of a Docker Swarm deployment. To publish it as an open-source project, it needed much more test and documentation coverage, plus Kubernetes primitives — which is what the current version is.</p>
+        <div class="note">
+          <strong>AI-assisted development, disclosed plainly:</strong> the implementation (shell scripts, Rust reconciler, Kubernetes manifests, tests, documentation) was written with heavy use of coding agents — Claude Code and Oh-My-Pi, running on the maintainer's own self-hosted AI infrastructure. The architecture and every consequential design decision are the maintainer's, not the model's. Details in <a href="https://github.com/wiesion/zocalo-sftp/blob/main/ARCHITECTURE.md#design-decisions" rel="noopener" target="_blank">ARCHITECTURE.md § Design Decisions</a>.
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- 13. Footer -->
+  <footer class="site-footer">
+    <div class="wrap">
+      <div class="footer-grid">
+        <span class="footer-brand">
+          <svg viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+            <rect x="2" y="2" width="28" height="28" rx="6" fill="none" stroke="currentColor" stroke-width="2.5"/>
+            <path d="M10.5 10.5 H21.5 L10.5 21.5 H21.5" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          zocalo-sftp
+        </span>
+        <nav class="footer-links" aria-label="Footer">
+          <a href="https://github.com/wiesion/zocalo-sftp" rel="noopener" target="_blank">GitHub</a>
+          <a href="https://github.com/wiesion/zocalo-sftp/issues" rel="noopener" target="_blank">Issues</a>
+          <a href="https://github.com/wiesion/zocalo-sftp/blob/main/SECURITY.md" rel="noopener" target="_blank">Security policy</a>
+          <a href="https://hub.docker.com/r/wiesion/zocalo-sftp" rel="noopener" target="_blank">Docker Hub</a>
+          <a href="/imprint.html">Imprint</a>
+        </nav>
+        <div class="footer-meta">
+          <p>MIT licensed. © 2026 zocalo-sftp. The name nods to the <a href="https://babylon5.fandom.com/wiki/Z%C3%B3calo">Zocalo market square</a> from <a href="https://en.wikipedia.org/wiki/Babylon_5">Babylon 5</a></p>
+          <p>This site sets no cookies, loads no third-party resources, and has no analytics. Static HTML, CSS and a few lines of JavaScript.</p>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <script src="/js/site.js" defer></script>
+</body>
+</html>
