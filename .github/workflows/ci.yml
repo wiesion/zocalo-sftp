@@ -14,7 +14,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v4
 
       - name: Install ShellCheck
         run: sudo apt-get install -y shellcheck
@@ -43,10 +43,10 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v4
 
       - name: Install Rust toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@1fbea72663f6d4c03efaab13560c8a24cfd2a7cc  # v1.9.0
+        uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f  # v2.0.0
         with:
           toolchain: 1.97.1
           components: clippy, rustfmt
@@ -82,13 +82,13 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v4
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069  # v4.4.1
 
       - name: Build image
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8  # v6
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc  # v7.4.0
         with:
           context: .
           push: false
@@ -98,7 +98,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Install Syft
-        uses: anchore/sbom-action/download-syft@17ae1740179002c89186b61233e0f892c3118b11  # v0.23.0
+        uses: anchore/sbom-action/download-syft@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c  # v0.24.3
 
       # sftp-reconciled is stripped and statically linked, invisible to
       # image-based cataloging by default. The Dockerfile copies Cargo.lock
@@ -112,7 +112,7 @@ jobs:
           syft zocalo-sftp:test --select-catalogers +rust-cargo-lock-cataloger -o cyclonedx-json=sbom.cyclonedx.json
 
       - name: Upload SBOM
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: sbom
           path: |
@@ -125,7 +125,7 @@ jobs:
       # via steps.install-grype.outputs.cmd, not bare `grype`.
       - name: Install Grype
         id: install-grype
-        uses: anchore/scan-action/download-grype@7037fa011853d5a11690026fb85feee79f4c946c  # v7.3.2
+        uses: anchore/scan-action/download-grype@27805bf3b4e84b4a5c980df22ed233c00390a439  # v7.4.2
 
       # Scans the SBOM generated above, not a second image scan. Grype has
       # no equivalent cataloger-selection flag, and scanning what was
@@ -141,7 +141,7 @@ jobs:
 
       - name: Upload vulnerability report
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: vulnerability-report
           path: |
@@ -205,19 +205,19 @@ jobs:
           - example: 10-security-boundary
 
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v4
 
       - name: Install expect
         if: ${{ matrix.needs_expect }}
         run: sudo apt-get install -y expect
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069  # v4.4.1
 
       # Rebuild from layer cache. No cache-to, to avoid a redundant write.
       # This is a read-only restore of the layers cached by build-and-scan.
       - name: Restore image from build cache
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8  # v6
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc  # v7.4.0
         with:
           context: .
           push: false
@@ -247,14 +247,14 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v4
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069  # v4.4.1
 
       # Rebuild from layer cache. No cache-to, to avoid a redundant write.
       - name: Restore image from build cache
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8  # v6
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc  # v7.4.0
         with:
           context: .
           push: false
@@ -263,7 +263,7 @@ jobs:
           cache-from: type=gha
 
       - name: Install kind and kubectl
-        uses: helm/kind-action@99576bfa6ddf9a8e612d83b513da5a75875caced  # v1.9.0
+        uses: helm/kind-action@06c1ae10762d3b9c1644e7fe69596ae519e015a2  # v1.15.0
         with:
           install_only: true
 
