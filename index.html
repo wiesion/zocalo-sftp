@@ -145,6 +145,10 @@
             <p>setgid group directories, parent owned by root — users can't delete whole projects.</p>
           </div>
           <div class="feat">
+            <h3><span class="icon" aria-hidden="true">◐</span>Read-only logins</h3>
+            <p>Flag an account <code>ro</code> and the SFTP server itself refuses every write — upload, delete, rename, mkdir, chmod. Reuse one key for a read-write and a read-only login.</p>
+          </div>
+          <div class="feat">
             <h3><span class="icon" aria-hidden="true">⚿</span>Auth modes via one variable</h3>
             <p>pubkey (default, ed25519), CA certificates, password, and combinations including 2FA (<code>pubkey,password</code>).</p>
           </div>
@@ -496,7 +500,7 @@ sftp&gt; put report.txt</code></pre>
     <section id="examples" aria-labelledby="ex-h">
       <div class="wrap">
         <span class="section-kicker">Examples</span>
-        <h2 id="ex-h">Ten working setups</h2>
+        <h2 id="ex-h">Eleven working setups</h2>
         <p class="lead">Each example ships with <code>setup.sh</code> (interactive) and <code>test.sh</code> (automated: auth, visibility, file operations, permissions).</p>
         <ul class="examples-list">
           <li>
@@ -539,6 +543,10 @@ sftp&gt; put report.txt</code></pre>
             <span class="ex-name"><a href="https://github.com/wiesion/zocalo-sftp/tree/main/examples/10-security-boundary" rel="noopener" target="_blank">10-security-boundary</a></span>
             <p class="ex-desc">Adversarial tests: hostile config, a hostile non-member client, drift repair, revocation on removal.</p>
           </li>
+          <li>
+            <span class="ex-name"><a href="https://github.com/wiesion/zocalo-sftp/tree/main/examples/11-readonly-users" rel="noopener" target="_blank">11-readonly-users</a></span>
+            <p class="ex-desc">Read-only accounts with the <code>ro</code> flag: a general <code>kosh</code> and an <code>ivanova</code> / <code>ivanova_ro</code> pair sharing one key.</p>
+          </li>
         </ul>
       </div>
     </section>
@@ -565,6 +573,21 @@ sftp&gt; put report.txt</code></pre>
 <pre><code>printf '%s\n' "$(($(cat config/.generation) + 1))" > config/.generation</code></pre>
               </div>
               <p>Without the bump, the reconcile loop picks it up within <code>SFTP_RECONCILE_INTERVAL</code> seconds (default 15). See <a href="https://github.com/wiesion/zocalo-sftp/blob/main/README.md#runtime-reconciliation" rel="noopener" target="_blank">Runtime Reconciliation</a>.</p>
+            </div>
+          </details>
+          <details>
+            <summary>Can I give someone read-only access?</summary>
+            <div class="faq-body">
+              <p>Yes. Append <code>:ro</code> to the user in <code>sftp_users.conf</code>. The SFTP server then refuses every request that modifies anything (upload, overwrite, delete, rename, mkdir, symlink, chmod), whatever the file permissions say. Read-only belongs to the <em>account</em>, so it applies to every project that account is a member of. That gives you a general read-only account such as <code>kosh</code>, and, for someone who normally has write access, a second login that reuses their credentials:</p>
+              <div class="codeblock">
+                <div class="cb-label"><span class="fname">config/sftp_users.conf</span></div>
+                <button type="button" class="copy-btn" aria-label="Copy read-only users example" data-copy-sibling>copy</button>
+<pre><code><span class="tk-com"># username:uid[:flags]  (flags: disabled, ro)</span>
+ivanova:1001
+ivanova_ro:1002:ro
+kosh:1003:ro</code></pre>
+              </div>
+              <p>Publish ivanova's public key under both names (<code>ivanova.authorized_keys</code> and <code>ivanova_ro.authorized_keys</code>) and she chooses the mode by the username she logs in with. Changes apply to the account's next session within <code>SFTP_RECONCILE_INTERVAL</code> seconds. See <a href="https://github.com/wiesion/zocalo-sftp/blob/main/README.md#read-only-users" rel="noopener" target="_blank">Read-only users</a>.</p>
             </div>
           </details>
           <details>
