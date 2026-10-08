@@ -8,7 +8,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use nix::unistd::{chown, fchown, Gid, Uid};
 use sha_crypt::{sha512_check, sha512_simple, Sha512Params};
 
-use crate::config::{ProjectEntry, UserEntry};
+use crate::config::{ProjectEntry, UserEntry, READONLY_GROUP};
 use crate::system::{
     read_group, read_passwd, read_shadow, sync_authorized_keys, write_group, write_passwd,
     write_shadow, GroupEntry, PasswdEntry, ShadowEntry,
@@ -30,8 +30,8 @@ fn hash_password(pw: &str) -> Option<String> {
 // ── Init-only operations ──────────────────────────────────────────────────────
 
 /// Remove all non-system users (1000 ≤ uid < 60000) from passwd and shadow,
-/// and all non-system groups (1000 ≤ gid < 60000) except sftp_users_gid.
-pub fn reset_users(sftp_users_gid: u32) -> Result<(), Vec<String>> {
+/// and all non-system groups (1000 ≤ gid < 60000) except `keep_gids`.
+pub fn reset_users(keep_gids: &[u32]) -> Result<(), Vec<String>> {
     let mut errors = Vec::new();
 
     match read_passwd() {
@@ -65,7 +65,7 @@ pub fn reset_users(sftp_users_gid: u32) -> Result<(), Vec<String>> {
         Err(e) => errors.push(format!("failed to read /etc/group: {}", e)),
         Ok(mut group) => {
             let before = group.len();
-            group.retain(|e| e.gid < 1000 || e.gid >= 60000 || e.gid == sftp_users_gid);
+            group.retain(|e| e.gid < 1000 || e.gid >= 60000 || keep_gids.contains(&e.gid));
             if group.len() != before {
                 if let Err(e) = write_group(&group) {
                     errors.push(format!("failed to write /etc/group: {}", e));
@@ -202,17 +202,17 @@ pub(crate) fn enforce_project_dir(path: &Path, gid: u32, mode: u32) -> Result<bo
     Ok(changed)
 }
 
-/// Remove managed groups (1000 ≤ gid < 60000, other than `sftp_users_gid`)
+/// Remove managed groups (1000 ≤ gid < 60000, other than `reserved_gids`)
 /// that are no longer declared, so deleting a project revokes its members'
 /// access. Returns the names removed.
 pub(crate) fn prune_stale_groups(
     groups: &mut Vec<GroupEntry>,
     desired: &HashSet<&str>,
-    sftp_users_gid: u32,
+    reserved_gids: &[u32],
 ) -> Vec<String> {
     let mut removed = Vec::new();
     groups.retain(|g| {
-        let managed = (1000..60000).contains(&g.gid) && g.gid != sftp_users_gid;
+        let managed = (1000..60000).contains(&g.gid) && !reserved_gids.contains(&g.gid);
         if managed && !desired.contains(g.name.as_str()) {
             removed.push(g.name.clone());
             false
@@ -421,6 +421,76 @@ pub fn reconcile_users(
     Ok(())
 }
 
+/// Converge the `sftp_ro` group (see sshd.conf: `Match Group sftp_ro` forces
+/// `internal-sftp -R`) so its members are exactly the users flagged `ro`.
+///
+/// Always strict: the group is a security control, and a flagged user left
+/// out of it would be writable. sshd resolves group membership at login, so
+/// a change applies to the next session of an affected user, without a reload.
+pub fn reconcile_readonly_group(users: &[UserEntry], readonly_gid: u32) -> Result<(), Vec<String>> {
+    let mut group = read_group().map_err(|e| vec![format!("failed to read /etc/group: {}", e)])?;
+    let members = readonly_members(users);
+    if !sync_readonly_group(&mut group, &members, readonly_gid)? {
+        return Ok(());
+    }
+    write_group(&group).map_err(|e| vec![format!("failed to write /etc/group: {}", e)])?;
+    eprintln!(
+        "Reconcile: read-only accounts: {}",
+        if members.is_empty() {
+            "none".to_string()
+        } else {
+            members.join(", ")
+        }
+    );
+    Ok(())
+}
+
+fn readonly_members(users: &[UserEntry]) -> Vec<String> {
+    let mut members: Vec<String> = users
+        .iter()
+        .filter(|u| u.readonly)
+        .map(|u| u.name.clone())
+        .collect();
+    members.sort();
+    members
+}
+
+/// Create or update the read-only group in `group`. Returns whether it changed.
+pub(crate) fn sync_readonly_group(
+    group: &mut Vec<GroupEntry>,
+    members: &[String],
+    readonly_gid: u32,
+) -> Result<bool, Vec<String>> {
+    if let Some(other) = group
+        .iter()
+        .find(|g| g.gid == readonly_gid && g.name != READONLY_GROUP)
+    {
+        return Err(vec![format!(
+            "GID {} for {} is already used by existing group {}",
+            readonly_gid, READONLY_GROUP, other.name
+        )]);
+    }
+    match group.iter_mut().find(|g| g.name == READONLY_GROUP) {
+        Some(g) if g.gid != readonly_gid => Err(vec![format!(
+            "group {} already exists with GID {}, expected {}",
+            READONLY_GROUP, g.gid, readonly_gid
+        )]),
+        Some(g) if g.members == members => Ok(false),
+        Some(g) => {
+            g.members = members.to_vec();
+            Ok(true)
+        }
+        None => {
+            group.push(GroupEntry {
+                name: READONLY_GROUP.to_string(),
+                gid: readonly_gid,
+                members: members.to_vec(),
+            });
+            Ok(true)
+        }
+    }
+}
+
 /// Converge /etc/group and /sftp-jail/projects/ toward `desired`.
 ///
 /// Besides creating and repairing declared projects, this removes groups of
@@ -431,7 +501,7 @@ pub fn reconcile_users(
 pub fn reconcile_projects(
     desired: &[ProjectEntry],
     project_mode: u32,
-    sftp_users_gid: u32,
+    reserved_gids: &[u32],
     strict: bool,
 ) -> Result<(), Vec<String>> {
     let mut errors: Vec<String> = Vec::new();
@@ -443,7 +513,7 @@ pub fn reconcile_projects(
     let mut group_dirty = false;
 
     let desired_names: HashSet<&str> = desired.iter().map(|p| p.name.as_str()).collect();
-    for name in prune_stale_groups(&mut group, &desired_names, sftp_users_gid) {
+    for name in prune_stale_groups(&mut group, &desired_names, reserved_gids) {
         eprintln!("Reconcile: removed group of undeclared project {}", name);
         group_dirty = true;
     }
@@ -538,8 +608,48 @@ mod tests {
         GroupEntry {
             name: name.to_string(),
             gid,
-            members: vec!["alice".to_string()],
+            members: vec!["sheridan".to_string()],
         }
+    }
+
+    fn user(name: &str, ro: bool) -> UserEntry {
+        UserEntry {
+            name: name.to_string(),
+            uid: 1001,
+            disabled: false,
+            readonly: ro,
+        }
+    }
+
+    #[test]
+    fn readonly_group_members_are_exactly_the_flagged_users() {
+        let users = [
+            user("ivanova", false),
+            user("ivanova_ro", true),
+            user("kosh", true),
+        ];
+        assert_eq!(readonly_members(&users), ["ivanova_ro", "kosh"]);
+    }
+
+    #[test]
+    fn readonly_group_created_updated_and_idempotent() {
+        let mut groups = vec![group("root", 0)];
+        let m = vec!["ivanova_ro".to_string()];
+        assert!(sync_readonly_group(&mut groups, &m, 59998).unwrap());
+        assert_eq!(groups[1].name, "sftp_ro");
+        assert_eq!(groups[1].members, m);
+        assert!(!sync_readonly_group(&mut groups, &m, 59998).unwrap());
+        // Dropping the flag empties the group on the next pass.
+        assert!(sync_readonly_group(&mut groups, &[], 59998).unwrap());
+        assert!(groups[1].members.is_empty());
+    }
+
+    #[test]
+    fn readonly_group_gid_conflicts_are_errors() {
+        let mut taken = vec![group("other", 59998)];
+        assert!(sync_readonly_group(&mut taken, &[], 59998).is_err());
+        let mut moved = vec![group("sftp_ro", 2001)];
+        assert!(sync_readonly_group(&mut moved, &[], 59998).is_err());
     }
 
     #[test]
@@ -547,14 +657,15 @@ mod tests {
         let mut groups = vec![
             group("root", 0),
             group("sftp_users", 59999),
+            group("sftp_ro", 59998),
             group("kept", 2001),
             group("gone", 2002),
         ];
         let desired: HashSet<&str> = ["kept"].into_iter().collect();
-        let removed = prune_stale_groups(&mut groups, &desired, 59999);
+        let removed = prune_stale_groups(&mut groups, &desired, &[59999, 59998]);
         assert_eq!(removed, vec!["gone".to_string()]);
         let names: Vec<&str> = groups.iter().map(|g| g.name.as_str()).collect();
-        assert_eq!(names, ["root", "sftp_users", "kept"]);
+        assert_eq!(names, ["root", "sftp_users", "sftp_ro", "kept"]);
     }
 
     fn scratch(tag: &str) -> std::path::PathBuf {

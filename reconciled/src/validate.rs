@@ -12,6 +12,7 @@ pub struct RuntimeConfig {
     pub project_mode: u32,
     pub reconcile_interval: Duration,
     pub sftp_users_gid: u32,
+    pub readonly_gid: u32,
     pub reset_users: bool,
     pub reset_projects: bool,
     pub password_auth_enabled: bool,
@@ -187,6 +188,28 @@ pub fn validate_env() -> Result<RuntimeConfig, Vec<String>> {
         }
     };
 
+    let readonly_gid_raw = env_var("SFTP_READONLY_GID", "59998");
+    let readonly_gid = match readonly_gid_raw.parse::<u32>() {
+        Ok(g) if (1000..60000).contains(&g) => g,
+        Ok(g) => {
+            errors.push(format!(
+                "SFTP_READONLY_GID {} must be in range 1000-59999",
+                g
+            ));
+            59998
+        }
+        Err(_) => {
+            errors.push(format!(
+                "SFTP_READONLY_GID must be a positive integer, got: {}",
+                readonly_gid_raw
+            ));
+            59998
+        }
+    };
+    if readonly_gid == sftp_users_gid {
+        errors.push("SFTP_READONLY_GID must differ from SFTP_USERS_GID".to_string());
+    }
+
     let ipv4 = env_var("SSHD_ENABLE_IPV4", "yes");
     let ipv6 = env_var("SSHD_ENABLE_IPV6", "yes");
     if ipv4 != "yes" && ipv4 != "no" {
@@ -301,6 +324,7 @@ pub fn validate_env() -> Result<RuntimeConfig, Vec<String>> {
         project_mode,
         reconcile_interval: Duration::from_secs(reconcile_interval_secs),
         sftp_users_gid,
+        readonly_gid,
         reset_users,
         reset_projects,
         password_auth_enabled: needs_password_auth,

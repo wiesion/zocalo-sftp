@@ -16,6 +16,7 @@ This directory contains examples demonstrating different deployment scenarios fo
 | `08-custom-config`    | Drop-in sshd_config.d overrides | Per-group and per-user limits via mounted config files    |
 | `09-kubernetes`       | Kubernetes deployment           | StatefulSet, split liveness/readiness probes, NetworkPolicy (kind + Calico) |
 | `10-security-boundary`| Adversarial tests               | Hostile config, hostile client, drift repair, lifecycle revocation |
+| `11-readonly-users`   | Read-only accounts              | `:ro` flag, general `kosh` account, `ivanova`/`ivanova_ro` sharing one key |
 
 **Note on `09-kubernetes`:** it's the odd one out. Kubernetes (kind + Calico), not Docker Compose, so it doesn't use `lib/test-helpers.sh`'s Docker-specific functions and isn't part of the quick Compose-only loop below. See its own [README](./09-kubernetes/README.md). It also takes noticeably longer to run (a couple of minutes) since `test.sh`/`setup.sh` each stand up and tear down a disposable Kubernetes cluster.
 
@@ -166,6 +167,12 @@ The test scripts validate:
 - ✓ Complex access matrix validation
 - ✓ Multi-project isolation
 - ✓ Exclusive project access
+
+**11-readonly-users:**
+- ✓ Read-write login can upload, mkdir, rename, delete
+- ✓ Read-only login (sharing the read-write login's key) can list and download, but every modifying request is refused
+- ✓ General read-only account across several projects
+- ✓ Dropping/restoring the `ro` flag changes the next session's mode
 
 **05-certificate-auth:**
 - ✓ Certificate authentication

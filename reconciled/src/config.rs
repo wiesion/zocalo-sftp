@@ -1,11 +1,12 @@
 use std::collections::{HashMap, HashSet};
 
-/// Parsed entry from sftp_users.conf (`username:uid` or `username:uid:disabled`).
+/// Parsed entry from sftp_users.conf (`username:uid[:flag[,flag]]`, flags `disabled` and `ro`).
 #[derive(Debug, Clone)]
 pub struct UserEntry {
     pub name: String,
     pub uid: u32,
     pub disabled: bool,
+    pub readonly: bool,
 }
 
 /// Parsed entry from sftp_projects.conf (`project:gid:user1,user2,...`).
@@ -16,11 +17,36 @@ pub struct ProjectEntry {
     pub members: Vec<String>,
 }
 
+/// Name of the managed group that forces read-only SFTP sessions (see sshd.conf).
+pub const READONLY_GROUP: &str = "sftp_ro";
+
 fn valid_name(s: &str) -> bool {
     !s.is_empty()
         && !s.starts_with('-')
         && s.chars()
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-')
+}
+
+/// Parse the comma-separated flag list of a users line into (disabled, readonly).
+fn parse_user_flags(raw: &str) -> Result<(bool, bool), String> {
+    let (mut disabled, mut readonly) = (false, false);
+    for flag in raw.split(',').map(str::trim).filter(|f| !f.is_empty()) {
+        let seen = match flag {
+            "disabled" => &mut disabled,
+            "ro" => &mut readonly,
+            other => {
+                return Err(format!(
+                    "unknown flag {:?} (expected 'disabled' and/or 'ro')",
+                    other
+                ))
+            }
+        };
+        if *seen {
+            return Err(format!("duplicate flag {:?}", flag));
+        }
+        *seen = true;
+    }
+    Ok((disabled, readonly))
 }
 
 /// Parse sftp_users.conf. Returns (valid_entries, error_messages).
@@ -36,7 +62,7 @@ pub fn parse_users(content: &str) -> (Vec<UserEntry>, Vec<String>) {
         let parts: Vec<&str> = line.splitn(3, ':').collect();
         if parts.len() < 2 {
             errors.push(format!(
-                "sftp_users.conf:{}: expected name:uid[:disabled]",
+                "sftp_users.conf:{}: expected name:uid[:flags]",
                 i + 1
             ));
             continue;
@@ -69,15 +95,10 @@ pub fn parse_users(content: &str) -> (Vec<UserEntry>, Vec<String>) {
             ));
             continue;
         }
-        let disabled = match parts.get(2).copied().unwrap_or("") {
-            "" => false,
-            "disabled" => true,
-            other => {
-                errors.push(format!(
-                    "sftp_users.conf:{}: unknown flag {:?} (expected 'disabled')",
-                    i + 1,
-                    other
-                ));
+        let (disabled, readonly) = match parse_user_flags(parts.get(2).copied().unwrap_or("")) {
+            Ok(f) => f,
+            Err(msg) => {
+                errors.push(format!("sftp_users.conf:{}: {}", i + 1, msg));
                 continue;
             }
         };
@@ -85,6 +106,7 @@ pub fn parse_users(content: &str) -> (Vec<UserEntry>, Vec<String>) {
             name: name.to_string(),
             uid,
             disabled,
+            readonly,
         });
     }
     (entries, errors)
@@ -166,6 +188,7 @@ pub fn validate_identity_graph(
     users: &[UserEntry],
     projects: &[ProjectEntry],
     sftp_users_gid: u32,
+    readonly_gid: u32,
 ) -> Vec<String> {
     let mut errors = Vec::new();
 
@@ -191,12 +214,18 @@ pub fn validate_identity_graph(
         if !project_names.insert(&p.name) {
             errors.push(format!("duplicate project name {:?}", p.name));
         }
-        if p.name == "sftp_users" {
-            errors.push("project name \"sftp_users\" is reserved".to_string());
+        if p.name == "sftp_users" || p.name == READONLY_GROUP {
+            errors.push(format!("project name {:?} is reserved", p.name));
         }
         if p.gid == sftp_users_gid {
             errors.push(format!(
                 "project {:?}: GID {} equals SFTP_USERS_GID (would grant access to every SFTP user)",
+                p.name, p.gid
+            ));
+        }
+        if p.gid == readonly_gid {
+            errors.push(format!(
+                "project {:?}: GID {} equals SFTP_READONLY_GID (would make the project's members read-only everywhere)",
                 p.name, p.gid
             ));
         }
@@ -251,75 +280,132 @@ mod tests {
         p
     }
     fn check(u: &str, p: &str) -> Vec<String> {
-        validate_identity_graph(&users(u), &projects(p), 59999)
+        validate_identity_graph(&users(u), &projects(p), 59999, 59998)
     }
 
     #[test]
     fn valid_graph_passes() {
         assert!(check(
-            "alice:1001\nbob:1002:disabled",
-            "a:2001:alice\nb:2002:alice,bob"
+            "sheridan:1001\ngaribaldi:1002:disabled",
+            "a:2001:sheridan\nb:2002:sheridan,garibaldi"
         )
         .is_empty());
     }
 
     #[test]
     fn duplicate_uid_rejected() {
-        let e = check("alice:1001\nbob:1001", "");
+        let e = check("sheridan:1001\ngaribaldi:1001", "");
         assert_eq!(e.len(), 1);
         assert!(e[0].contains("UID 1001"));
     }
 
     #[test]
     fn duplicate_username_rejected() {
-        assert!(!check("alice:1001\nalice:1002", "").is_empty());
+        assert!(!check("sheridan:1001\nsheridan:1002", "").is_empty());
     }
 
     #[test]
     fn duplicate_project_name_rejected() {
-        assert!(!check("alice:1001", "a:2001:alice\na:2002:alice").is_empty());
+        assert!(!check("sheridan:1001", "a:2001:sheridan\na:2002:sheridan").is_empty());
     }
 
     #[test]
     fn duplicate_gid_rejected() {
-        let e = check("alice:1001\nbob:1002", "a:2001:alice\nb:2001:bob");
+        let e = check(
+            "sheridan:1001\ngaribaldi:1002",
+            "a:2001:sheridan\nb:2001:garibaldi",
+        );
         assert_eq!(e.len(), 1);
         assert!(e[0].contains("GID 2001"));
     }
 
     #[test]
     fn project_gid_equal_to_users_gid_rejected() {
-        let e = validate_identity_graph(&users("alice:1001"), &projects("a:59999:alice"), 59999);
+        let e = validate_identity_graph(
+            &users("sheridan:1001"),
+            &projects("a:59999:sheridan"),
+            59999,
+            59998,
+        );
         assert_eq!(e.len(), 1);
         assert!(e[0].contains("SFTP_USERS_GID"));
     }
 
     #[test]
     fn reserved_group_name_rejected() {
-        assert!(!check("alice:1001", "sftp_users:2001:alice").is_empty());
+        assert!(!check("sheridan:1001", "sftp_users:2001:sheridan").is_empty());
+    }
+
+    #[test]
+    fn project_gid_equal_to_readonly_gid_rejected() {
+        let e = validate_identity_graph(
+            &users("sheridan:1001"),
+            &projects("a:59998:sheridan"),
+            59999,
+            59998,
+        );
+        assert_eq!(e.len(), 1);
+        assert!(e[0].contains("SFTP_READONLY_GID"));
+    }
+
+    #[test]
+    fn reserved_readonly_group_name_rejected() {
+        assert!(!check("sheridan:1001", "sftp_ro:2001:sheridan").is_empty());
+    }
+
+    fn flags(line: &str) -> (bool, bool) {
+        let u = users(line);
+        (u[0].disabled, u[0].readonly)
+    }
+
+    #[test]
+    fn user_flags_parse() {
+        assert_eq!(flags("a:1001"), (false, false));
+        assert_eq!(flags("a:1001:"), (false, false));
+        assert_eq!(flags("a:1001:disabled"), (true, false));
+        assert_eq!(flags("a:1001:ro"), (false, true));
+        assert_eq!(flags("a:1001:ro,disabled"), (true, true));
+        assert_eq!(flags("a:1001:disabled, ro"), (true, true));
+    }
+
+    #[test]
+    fn bad_user_flags_rejected() {
+        for line in [
+            "a:1001:rw",
+            "a:1001:ro,ro",
+            "a:1001:ro:disabled",
+            "a:1001:RO",
+        ] {
+            let (u, e) = parse_users(line);
+            assert!(u.is_empty(), "{line}");
+            assert_eq!(e.len(), 1, "{line}");
+        }
     }
 
     #[test]
     fn unknown_member_is_dropped_with_warning_not_error() {
-        let u = users("alice:1001");
-        let mut p = projects("a:2001:alice,ghost");
-        assert!(validate_identity_graph(&u, &p, 59999).is_empty());
+        let u = users("sheridan:1001");
+        let mut p = projects("a:2001:sheridan,ghost");
+        assert!(validate_identity_graph(&u, &p, 59999, 59998).is_empty());
         let w = drop_undeclared_members(&u, &mut p);
         assert_eq!(w.len(), 1);
         assert!(w[0].contains("ghost"));
-        assert_eq!(p[0].members, vec!["alice".to_string()]);
+        assert_eq!(p[0].members, vec!["sheridan".to_string()]);
     }
 
     #[test]
     fn member_with_separator_rejected_at_parse() {
-        let (_, e) = parse_projects("a:2001:alice:0:root");
+        let (_, e) = parse_projects("a:2001:sheridan:0:root");
         assert_eq!(e.len(), 1);
         assert!(e[0].contains("invalid member"));
     }
 
     #[test]
     fn all_errors_reported_together() {
-        let e = check("alice:1001\nbob:1001", "a:2001:alice\nb:2001:bob");
+        let e = check(
+            "sheridan:1001\ngaribaldi:1001",
+            "a:2001:sheridan\nb:2001:garibaldi",
+        );
         assert_eq!(e.len(), 2);
     }
 }

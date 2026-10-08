@@ -31,6 +31,7 @@ fn read_config_file(path: &str) -> Result<String, String> {
 /// once; nothing may be mutated unless this returns Ok.
 fn load_config(
     sftp_users_gid: u32,
+    readonly_gid: u32,
 ) -> Result<(Vec<config::UserEntry>, Vec<config::ProjectEntry>), Vec<String>> {
     let mut errors = Vec::new();
     let users_raw = read_config_file("/config/sftp_users.conf")
@@ -54,6 +55,7 @@ fn load_config(
             &users,
             &projects,
             sftp_users_gid,
+            readonly_gid,
         ));
     }
     if errors.is_empty() {
@@ -92,7 +94,7 @@ fn run_init(cfg: &RuntimeConfig) {
 
     // Fail immediately on any problem: bad config must not reach production,
     // and nothing below this point has touched /etc yet.
-    let (users, projects) = match load_config(cfg.sftp_users_gid) {
+    let (users, projects) = match load_config(cfg.sftp_users_gid, cfg.readonly_gid) {
         Ok(c) => c,
         Err(errs) => {
             for e in &errs {
@@ -103,7 +105,7 @@ fn run_init(cfg: &RuntimeConfig) {
     };
 
     if cfg.reset_users {
-        if let Err(errs) = reconcile::reset_users(cfg.sftp_users_gid) {
+        if let Err(errs) = reconcile::reset_users(&[cfg.sftp_users_gid, cfg.readonly_gid]) {
             for e in &errs {
                 eprintln!("Error: {}", e);
             }
@@ -129,6 +131,15 @@ fn run_init(cfg: &RuntimeConfig) {
         std::process::exit(1);
     }
 
+    // Fail closed: a read-only account that could not be placed in the
+    // read-only group would silently be writable, so this aborts startup.
+    if let Err(errs) = reconcile::reconcile_readonly_group(&users, cfg.readonly_gid) {
+        for e in &errs {
+            eprintln!("Error: {}", e);
+        }
+        std::process::exit(1);
+    }
+
     reconcile::ensure_project_root();
 
     if cfg.reset_projects {
@@ -136,9 +147,12 @@ fn run_init(cfg: &RuntimeConfig) {
         reconcile::reset_orphaned_projects(&active);
     }
 
-    if let Err(errs) =
-        reconcile::reconcile_projects(&projects, cfg.project_mode, cfg.sftp_users_gid, true)
-    {
+    if let Err(errs) = reconcile::reconcile_projects(
+        &projects,
+        cfg.project_mode,
+        &[cfg.sftp_users_gid, cfg.readonly_gid],
+        true,
+    ) {
         for e in &errs {
             eprintln!("Error: {}", e);
         }
@@ -157,7 +171,7 @@ fn run_init(cfg: &RuntimeConfig) {
 /// is applied and the last converged state stays in force: a half-applied
 /// identity graph is worse than a stale one.
 fn reconcile_lenient(cfg: &RuntimeConfig) {
-    let (users, projects) = match load_config(cfg.sftp_users_gid) {
+    let (users, projects) = match load_config(cfg.sftp_users_gid, cfg.readonly_gid) {
         Ok(c) => c,
         Err(errs) => {
             for e in &errs {
@@ -181,9 +195,17 @@ fn reconcile_lenient(cfg: &RuntimeConfig) {
             eprintln!("Error: {}", e);
         }
     }
-    if let Err(errs) =
-        reconcile::reconcile_projects(&projects, cfg.project_mode, cfg.sftp_users_gid, false)
-    {
+    if let Err(errs) = reconcile::reconcile_readonly_group(&users, cfg.readonly_gid) {
+        for e in &errs {
+            eprintln!("Error: {}", e);
+        }
+    }
+    if let Err(errs) = reconcile::reconcile_projects(
+        &projects,
+        cfg.project_mode,
+        &[cfg.sftp_users_gid, cfg.readonly_gid],
+        false,
+    ) {
         for e in &errs {
             eprintln!("Error: {}", e);
         }

@@ -13,6 +13,7 @@ This project composes existing tools: `openssh-server`, `tini`, `socat`, standar
 **What this is:**
 - A hardened OpenSSH server configured for SFTP-only access
 - Group-based project isolation using native Linux permissions
+- Read-only logins, enforced by the SFTP server itself (`ro` flag)
 - Migration path from `atmoz/sftp` or `emberstack/sftp-server` (config needs adaptation)
 - Works with any SFTP client: FileZilla, WinSCP, Cyberduck, or command-line tools (`sftp`, `pscp -sftp`)
 - Suitable for human users and automated deployment scripts
@@ -152,7 +153,7 @@ Either way, deploy it the same way as any container image. See [Examples](#examp
 
 ### Users
 
-Format: `username:uid`, one per line, `#` comments ignored.
+Format: `username:uid[:flags]`, one per line, `#` comments ignored. `flags` is an optional comma-separated list of `disabled` and `ro`.
 
 ```
 # config/sftp_users.conf
@@ -174,6 +175,51 @@ sheridan:1001:disabled
 The user's shadow entry is locked (`!*`), so no login is possible. Remove `:disabled` to re-enable. The reconcile loop picks up the change within `SFTP_RECONCILE_INTERVAL` seconds.
 
 UIDs must be in range 1000-59999.
+
+### Read-only users
+
+Append `:ro` to make an account read-only:
+```
+# config/sftp_users.conf
+sheridan:1001
+kosh:1002:ro
+```
+`internal-sftp` runs in read-only mode (`-R`) for these accounts: the server refuses every request that would modify the filesystem (upload, overwrite, delete, rename, mkdir, rmdir, symlink, chmod, chown), whatever the file permissions allow. Reading, listing and downloading work as usual. Flags combine: `kosh:1002:ro,disabled`.
+
+Read-only is a property of the **account**, not of a project membership: an `ro` account is read-only in every project it belongs to. Two common uses:
+
+**A general read-only account**, such as `kosh`, for reviewers, backups or downstream consumers who only ever read. Add it to the projects it needs to see.
+
+**Read-only access to a project for someone who normally has write access.** Give the person a second login with an `_ro` suffix, such as `ivanova` and `ivanova_ro`, and add `ivanova_ro` to the projects they should only read. The person picks the mode by the username they log in with. The two logins can share one credential, so there is nothing extra to distribute:
+
+```
+# config/sftp_users.conf
+ivanova:1001
+ivanova_ro:1002:ro
+```
+```
+# config/sftp_projects.conf
+command-staff:2001:ivanova,ivanova_ro
+```
+```yaml
+# compose.yml: one public key, served under both usernames
+secrets:
+  ivanova.authorized_keys:
+    file: ./secrets/ivanova.authorized_keys
+  ivanova_ro.authorized_keys:
+    file: ./secrets/ivanova.authorized_keys
+```
+```bash
+sftp -i secrets/ivanova_key ivanova@host      # read-write
+sftp -i secrets/ivanova_key ivanova_ro@host   # read-only
+```
+Password modes work the same way: provide `ivanova_ro.password` with the same content as `ivanova.password`. In certificate modes sshd requires the certificate principal to match the login name, so issue the certificate with both principals (`ssh-keygen -s ca -n ivanova,ivanova_ro ...`).
+
+`_ro` is only a naming convention for your own readability; the `ro` flag is what makes an account read-only. Accounts that mix modes across projects (read-write in one project, read-only in another) need one login per mode.
+
+Group membership is resolved when a session starts. Adding or removing `ro` takes effect within `SFTP_RECONCILE_INTERVAL` seconds for the account's **next** session; a session that is already open keeps the mode it started with.
+
+Read-only users are kept in a managed group, `sftp_ro` (GID `SFTP_READONLY_GID`), which the reconciler maintains and the sshd configuration keys on. If it cannot be updated at startup, the container refuses to start rather than leaving a flagged account writable.
 
 ### Projects
 
@@ -297,6 +343,7 @@ See [ARCHITECTURE.md § sshd_config Include Ordering, in Depth](./ARCHITECTURE.m
 | `SFTP_RECONCILE_INTERVAL`  | `15`   | Seconds between config file reconciliation checks (minimum: 5)                |
 | `SFTP_RESET_PROJECTS`      | `yes`  | Reset project ownership on start (only the literal value `yes` enables this)  |
 | `SFTP_RESET_USERS`         | `yes`  | Recreate users on container start (only the literal value `yes` enables this) |
+| `SFTP_READONLY_GID`        | `59998`| Group ID of the managed `sftp_ro` group that holds the `ro` accounts. Must differ from `SFTP_USERS_GID` and from every project GID |
 | `SFTP_USERS_GID`           | `59999`| Group ID for all SFTP users                                                   |
 | `SSHD_ENABLE_IPV4`    | `yes`     | Listen on IPv4 (`0.0.0.0`)                                                    |
 | `SSHD_ENABLE_IPV6`    | `yes`     | Listen on IPv6 (`::`)                                                         |
@@ -311,13 +358,14 @@ Configuration is validated in full before anything is changed. Project isolation
 - `SSHD_LOG_LEVEL`, `SFTP_LOG_LEVEL`: valid OpenSSH enum values
 - `SSHD_ENABLE_IPV4`, `SSHD_ENABLE_IPV6`: `yes`/`no`, at least one `yes`
 - `SFTP_PROJECT_MODE`: 3-digit octal string, group-private (no `other` bits, group-execute set)
-- `SFTP_USERS_GID`: integer, 1000-59999
+- `SFTP_USERS_GID`, `SFTP_READONLY_GID`: integer, 1000-59999, and different from each other
+- User flags: only `disabled` and `ro`, each at most once
 - Host key (`ssh_host_ed25519_key`): present and non-empty
 - CA key (`ssh_user_ca.pub`): present and non-empty when a cert mode is selected
 - Username / project name: `[a-z0-9_-]+`, non-empty, no leading `-`
 - UID per user, GID per project: integer, 1000-59999
 - UID/GID conflicts with existing accounts: container refuses to start if a user or group already exists with a different ID, or another account already holds the UID/GID
-- Identity collisions across the config: duplicate usernames, UIDs, project names or project GIDs; a project GID equal to `SFTP_USERS_GID`; the reserved project name `sftp_users`
+- Identity collisions across the config: duplicate usernames, UIDs, project names or project GIDs; a project GID equal to `SFTP_USERS_GID` or `SFTP_READONLY_GID`; the reserved project names `sftp_users` and `sftp_ro`
 - Project member names: same character rules as usernames
 - sshd drop-ins: `ChrootDirectory`, `ForceCommand` and `Include` are rejected (see [sshd_config drop-ins](#ssh-configuration))
 
@@ -522,6 +570,8 @@ The [examples/](./examples/) directory has complete working setups:
 - **07-2fa** - Two-factor authentication using `SFTP_AUTH_MODE: pubkey,password`
 - **08-custom-config** - Drop-in sshd_config.d files for per-group and per-user overrides
 - **09-kubernetes** - StatefulSet, split liveness/readiness probes, and a tested NetworkPolicy (kind + Calico)
+- **10-security-boundary** - Adversarial tests: hostile config, hostile client, drift repair, lifecycle revocation
+- **11-readonly-users** - Read-only accounts (`ro` flag): a general `kosh` account and an `ivanova`/`ivanova_ro` pair sharing one key
 
 ## Requirements
 
