@@ -114,7 +114,7 @@ For the startup sequence, the Rust reconciler's internals, and the logging/sshd_
 
 ## Build & Publish
 
-Published images are built and signed by [`.github/workflows/release.yml`](./.github/workflows/release.yml) to both Docker Hub and GHCR: `wiesion/zocalo-sftp:latest`/`vX.Y.Z` and `ghcr.io/wiesion/zocalo-sftp:latest`/`vX.Y.Z` on a tagged release, `:nightly` on each tracking Wolfi's continuously-rebuilt base. Verify a pulled image with keyless [Cosign](https://github.com/sigstore/cosign) (same command, either registry):
+Published images are built and signed by [`.github/workflows/release.yml`](./.github/workflows/release.yml) to both Docker Hub and GHCR: `:latest` and `:nightly` are rebuilt every night from `main` on Wolfi's continuously-rebuilt base (same test and vulnerability gate as a release), `:nightly-YYYYMMDD` pins a specific night, and `:vX.Y.Z` is a snapshot of a tagged release that is not rebuilt afterwards. Both registries (`wiesion/zocalo-sftp` and `ghcr.io/wiesion/zocalo-sftp`) get the same tags. Verify a pulled image with keyless [Cosign](https://github.com/sigstore/cosign) (same command, either registry):
 
 ```bash
 cosign verify wiesion/zocalo-sftp:latest \

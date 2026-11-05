@@ -5,9 +5,10 @@ on:
     tags:
       - 'v*.*.*'
   schedule:
-    # Nightly, tracking Wolfi's continuously-rebuilt base. Publishes to the
-    # floating `nightly` tag only, never `latest`, which only moves on a
-    # human-initiated version tag below. See README.md#build--publish.
+    # Nightly, tracking Wolfi's continuously-rebuilt base. Moves the floating
+    # `latest` and `nightly` tags and adds an immutable-by-convention
+    # `nightly-YYYYMMDD`. Versioned tags (X.Y.Z) only move on a version tag
+    # below. See README.md#build--publish.
     - cron: '0 3 * * *'
   workflow_dispatch: {}
 
@@ -207,7 +208,7 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
-            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') || github.event_name == 'schedule' }}
             type=raw,value=nightly,enable=${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
             type=raw,value=nightly-{{date 'YYYYMMDD'}},enable=${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
 
@@ -324,4 +325,4 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
           repository: wiesion/zocalo-sftp
           short-description: "SFTP server using native Linux groups and permissions instead of a virtual-user layer."
-          readme-filepath: ./README.md
+          readme-filepath: ./DOCKERHUB.md
